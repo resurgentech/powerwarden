@@ -36,6 +36,12 @@ type tenv struct {
 
 func setup(t *testing.T, tweak func(*config.Config)) *tenv {
 	t.Helper()
+	return setupKeyRequest(t, "", tweak)
+}
+
+// setupKeyRequest is setup with the Server's KeyRequestURL set.
+func setupKeyRequest(t *testing.T, keyURL string, tweak func(*config.Config)) *tenv {
+	t.Helper()
 	seed := func(c *config.Config) {
 		c.HostTags = map[string][]string{v1: {"kernel"}}
 		if tweak != nil {
@@ -48,7 +54,7 @@ func setup(t *testing.T, tweak func(*config.Config)) *tenv {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	(&Server{App: env.App, Tokens: toks, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}).Register(mux)
+	(&Server{App: env.App, Tokens: toks, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), KeyRequestURL: keyURL}).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return &tenv{Env: env, srv: srv, mux: mux}

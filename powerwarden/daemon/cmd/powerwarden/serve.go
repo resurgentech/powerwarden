@@ -87,7 +87,7 @@ func build(cfg config.Config, log *slog.Logger, transport http.RoundTripper) (*d
 	a := app.New(cfg, st, d.rec, view, ring, hub, clk, log)
 
 	mux := http.NewServeMux()
-	(&httpapi.Server{App: a, Tokens: tokens, Log: log}).Register(mux)
+	(&httpapi.Server{App: a, Tokens: tokens, Log: log, KeyRequestURL: cfg.PersonalKeys.RequestURL}).Register(mux)
 	if cfg.UI.Enabled {
 		var u *ui.UI
 		if cfg.UI.Auth == "proxy" {

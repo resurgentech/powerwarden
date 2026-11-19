@@ -48,6 +48,9 @@ error. Durations use Go syntax (`30s`, `5m`).
 - `classes` group hosts and PDUs and override stage `timings`; a host's class
   overrides the defaults, and for `pdu_outlet_wait` the PDU's class wins.
   `GET /v1/hosts/{hostname}` shows the resolved budgets.
+- `personal_keys.request_url` is optional (off by default): an absolute `http`
+  or `https` URL where a person requests a key for this service, advertised by
+  the unauthenticated `GET /v1/key-request`. Unset, that route is 404.
 
 Secrets never go in `config.yaml`. Check a config against the live inventory
 before deploying:
@@ -55,6 +58,8 @@ before deploying:
 ```bash
 just check /path/to/config.yaml   # needs the Vault environment; non-zero on error
 ```
+
+With `personal_keys.request_url` set, the `ok:` line ends with ` key_request=on`.
 
 ## Build the image
 
@@ -90,7 +95,7 @@ A compose example and post-deploy checks are in the design doc.
 
 ```bash
 PM=https://powermaster.example.com
-curl -s $PM/v1/healthz
+curl -s $PM/v1/healthz        # no auth; so is GET /v1/key-request (404 unless configured)
 curl -s -H "Authorization: Bearer $TOKEN" $PM/v1/hosts
 curl -s -H "Authorization: Bearer $TOKEN" -X POST \
   -d '{"action":"reboot","reason":"manual: hung"}' \

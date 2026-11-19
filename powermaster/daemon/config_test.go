@@ -334,3 +334,55 @@ func TestBudgetStrings(t *testing.T) {
 		t.Fatalf("strings = %v", got)
 	}
 }
+
+func TestPersonalKeysRequestURL(t *testing.T) {
+	if DefaultConfig().PersonalKeys.RequestURL != "" {
+		t.Fatal("request_url has a default")
+	}
+	cfg, err := ParseConfig(nil)
+	if err != nil || cfg.PersonalKeys.RequestURL != "" {
+		t.Fatalf("absent: %+v %v", cfg, err)
+	}
+	for _, u := range []string{
+		"https://keys.example.com/v1/services/powermaster/requests",
+		"http://provider.example:8080/req?x=1",
+		"HTTPS://Keys.Example.com/r",
+	} {
+		cfg, err := ParseConfig([]byte("personal_keys:\n  request_url: \"" + u + "\"\n"))
+		if err != nil || cfg.PersonalKeys.RequestURL != u {
+			t.Errorf("%q: %q %v", u, cfg.PersonalKeys.RequestURL, err)
+		}
+	}
+	for name, y := range map[string]string{
+		"relative":    "personal_keys:\n  request_url: /v1/requests\n",
+		"no scheme":   "personal_keys:\n  request_url: keys.example.com/r\n",
+		"ftp":         "personal_keys:\n  request_url: ftp://keys.example.com/r\n",
+		"no host":     "personal_keys:\n  request_url: \"https:///r\"\n",
+		"userinfo":    "personal_keys:\n  request_url: https://u:p@keys.example.com/r\n",
+		"fragment":    "personal_keys:\n  request_url: https://keys.example.com/r#f\n",
+		"bare #":      "personal_keys:\n  request_url: \"https://keys.example.com/r#\"\n",
+		"unknown key": "personal_keys:\n  request_url: https://keys.example.com/r\n  url: https://keys.example.com\n",
+	} {
+		_, err := ParseConfig([]byte(y))
+		want := "personal_keys.request_url"
+		if name == "unknown key" {
+			want = "url"
+		}
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestCheckSuffix(t *testing.T) {
+	if s := DefaultConfig().CheckSuffix(); s != "" {
+		t.Fatalf("unset: %q", s)
+	}
+	cfg, err := ParseConfig([]byte("personal_keys:\n  request_url: https://keys.example.com/r\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := cfg.CheckSuffix(); s != " key_request=on" {
+		t.Fatalf("set: %q", s)
+	}
+}

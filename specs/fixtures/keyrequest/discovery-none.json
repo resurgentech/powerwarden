@@ -1,0 +1,6 @@
+{
+  "summary": "Discovery: not configured",
+  "description": "GET /v1/key-request on a service that has no request URL. The service answers 404 with its own error body, if any. This fixture has no value member because a tool must not rely on the body of a 404.",
+  "x-status": 404,
+  "x-headers": {}
+}

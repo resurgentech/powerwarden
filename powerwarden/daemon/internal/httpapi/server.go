@@ -33,18 +33,26 @@ type Server struct {
 	App    *app.App
 	Tokens *Tokens
 	Log    *slog.Logger
+	// KeyRequestURL is personal_keys.request_url; empty makes
+	// GET /v1/key-request answer 404.
+	KeyRequestURL string
 }
 
 // Register adds every /v1 route to mux.
 func (s *Server) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v1/healthz", s.healthz)
 	auth := func(pattern string, h http.HandlerFunc) {
 		need, ok := RouteRole(pattern)
 		if !ok {
 			panic("httpapi: no role decision for route " + pattern)
 		}
+		if need == RoleNone {
+			mux.Handle(pattern, h)
+			return
+		}
 		mux.Handle(pattern, s.bearer(need, h))
 	}
+	auth("GET /v1/healthz", s.healthz)
+	auth("GET /v1/key-request", s.keyRequest)
 	auth("GET /v1/demands", s.listDemands)
 	auth("GET /v1/demands/{id}", s.getDemand)
 	auth("PUT /v1/demands/{id}", s.putDemand)
@@ -257,6 +265,15 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 		h.Status, code = api.Unavailable, http.StatusServiceUnavailable
 	}
 	writeJSON(w, code, h)
+}
+
+// keyRequest advertises where keys are requested; no authentication.
+func (s *Server) keyRequest(w http.ResponseWriter, r *http.Request) {
+	if s.KeyRequestURL == "" {
+		writeErr(w, http.StatusNotFound, api.ErrorCodeNotFound, "no key request URL configured")
+		return
+	}
+	writeJSON(w, http.StatusOK, api.KeyRequestDiscovery{RequestUrl: s.KeyRequestURL})
 }
 
 // ---- helpers ----

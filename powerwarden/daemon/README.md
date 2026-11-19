@@ -43,7 +43,9 @@ just build                # binary at cmd/powerwarden/powerwarden
 - `host_tags` optionally seeds host capability tags; after that they live in the
   database and are edited through the API or UI.
 
-`check-config` loads the config, then the tokens file with the loader `serve` uses. `--tokens-file` overrides `tokens_file`, so a rendered config and tokens pair can be checked off-box. A missing or invalid tokens file exits 1. On success it prints `ok: listen=… powermaster=… tokens=N (full=a, agent=b)`. It never prints a token value.
+`check-config` loads the config, then the tokens file with the loader `serve` uses. `--tokens-file` overrides `tokens_file`, so a rendered config and tokens pair can be checked off-box. A missing or invalid tokens file exits 1. On success it prints `ok: listen=… powermaster=… tokens=N (full=a, agent=b)`. It never prints a token value. With `personal_keys.request_url` set it appends ` key_request=on`.
+
+- `personal_keys.request_url` is optional (off by default): an absolute `http` or `https` URL where a person requests a key for this service, advertised by the unauthenticated `GET /v1/key-request`. Unset, that route is 404.
 
 `serve` needs these files:
 
@@ -58,7 +60,7 @@ just build                # binary at cmd/powerwarden/powerwarden
 
 ## Auth
 
-- `/v1/*` uses `Authorization: Bearer <token>`, except `GET /v1/healthz`.
+- `/v1/*` uses `Authorization: Bearer <token>`, except the unauthenticated `GET /v1/healthz` and `GET /v1/key-request`.
 - With `ui.auth: proxy`, `/ui/*` takes its identity from headers set by a reverse proxy that authenticates users: the request needs the secret header (equal to a line of the secret file, compared in constant time) and a user header naming a valid user (`^[A-Za-z0-9_.@-]{1,64}$`), else 401 with no `WWW-Authenticate`. There is no basic-auth prompt and no htpasswd in this mode. The UI caller is `ui:<user>`. The proxy must strip client-supplied copies of both headers and be the only way to reach the listen address.
 - `/ui/*` uses htpasswd basic auth by default. The browser's `EventSource` cannot send a bearer header, so the UI's live feed is `/ui/events`: the same hub as `/v1/events`, behind basic auth.
 - UI POSTs must carry an `Origin` (or `Referer`) whose host equals the request `Host`. This is the CSRF guard, so a reverse proxy in front must preserve `Host`.

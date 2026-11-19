@@ -59,6 +59,12 @@ func testInventory() *inventory.Inventory {
 
 func newEnv(t *testing.T, ringSize int) *env {
 	t.Helper()
+	return newEnvKeyRequest(t, ringSize, "")
+}
+
+// newEnvKeyRequest is newEnv with Options.KeyRequestURL set.
+func newEnvKeyRequest(t *testing.T, ringSize int, keyURL string) *env {
+	t.Helper()
 	cfg := powermaster.DefaultConfig()
 	ms := func(n int) powermaster.Duration { return powermaster.Duration(time.Duration(n) * time.Millisecond) }
 	cfg.Timings = powermaster.Timings{
@@ -88,7 +94,7 @@ func newEnv(t *testing.T, ringSize int) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(Options{Manager: mgr, Tokens: toks, Log: quiet, Heartbeat: 50 * time.Millisecond})
+	s, err := New(Options{Manager: mgr, Tokens: toks, Log: quiet, Heartbeat: 50 * time.Millisecond, KeyRequestURL: keyURL})
 	if err != nil {
 		t.Fatal(err)
 	}

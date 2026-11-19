@@ -11,12 +11,13 @@ info:
     Conventions:
     - Request and response bodies are `application/json`.
     - Unknown JSON fields in a request body are rejected with 400 `bad_request`.
-    - Every route except `GET /v1/healthz` requires `Authorization: Bearer <token>`.
-      The 401 body is identical for a missing and a wrong token.
+    - Every route except `GET /v1/healthz` and `GET /v1/key-request` requires
+      `Authorization: Bearer <token>`. The 401 body is identical for a missing
+      and a wrong token.
     - Every 4xx and 5xx response carries the `Error` body.
     - Host bodies (JSON and events) never contain IP addresses, IPMI/BMC
       credentials, SSH keys, PDU addresses or tokens.
-  version: 0.1.0
+  version: 0.2.0
 servers:
   - url: http://localhost:8092
     description: local default; use your deployment's URL
@@ -27,6 +28,8 @@ tags:
   - name: commands
   - name: events
   - name: meta
+  - name: key-request
+    description: Where a client asks for a key.
 paths:
   /v1/hosts:
     get:
@@ -261,6 +264,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Healthz'
+  /v1/key-request:
+    get:
+      tags: [key-request]
+      summary: Where to ask for a key
+      description: |
+        No authentication. Answers `200` with the absolute URL where key
+        requests are filed, or `404` when the service has none configured
+        (`personal_keys.request_url` unset).
+      operationId: getKeyRequestDiscovery
+      security: []
+      responses:
+        '200':
+          description: The service is configured with a request URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyRequestDiscovery'
+              examples:
+                discovery:
+                  summary: 'Discovery: a request URL'
+                  description: |
+                    Fixture: `specs/fixtures/keyrequest/discovery.json`.
+                  value:
+                    request_url: https://provider.example/v1/services/example/requests
+        '404':
+          description: |
+            The service has no request URL. The response may carry a body in
+            the service's own error format; the client must not rely on it.
+            Fixture: `specs/fixtures/keyrequest/discovery-none.json` (no body).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/stats:
     get:
       tags: [meta]
@@ -579,6 +615,17 @@ components:
         status:
           type: string
           enum: [ok, unavailable]
+    KeyRequestDiscovery:
+      type: object
+      required: [request_url]
+      properties:
+        request_url:
+          type: string
+          format: uri
+          description: |
+            Absolute `http` or `https` URL where a key request is filed with
+            `POST`.
+          example: https://provider.example/v1/services/example/requests
     PowerError:
       type: object
       required: [hostname, command_id, error, at]

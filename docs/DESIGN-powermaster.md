@@ -303,6 +303,7 @@ key with its default. Unknown keys are a startup error. Durations use Go syntax 
 | `events.ring_size`, `events.heartbeat` | `1000`, `15s` | SSE resume ring and heartbeat |
 | `timings.*` | see the table above | Stage times (defaults for every host and PDU) |
 | `classes.<name>` | none | `hosts: [...]` or `pdus: [...]` plus a `timings` subset that overrides the defaults |
+| `personal_keys.request_url` | none (off) | Optional. Absolute `http`/`https` URL (host required, no user information, no fragment) advertised by `GET /v1/key-request`; unset, that route is 404 |
 | `tui.api_url` | `""` | TUI only; see [TUI](#tui) |
 | `tui.token_file` | `~/.config/powermaster/token` | TUI only |
 | `tui.locked_taps`, `locked_tap_gap`, `locked_force_delay` | `4`, `3s`, `2s` | TUI only |
@@ -314,7 +315,8 @@ least one PDU outlet, or the daemon refuses to start and the error names each of
 and the seed rule all depend on outlets. `GET /v1/hosts/{hostname}` returns the resolved budgets for that host.
 
 **`powermaster check --config FILE`** (`just check`) loads the config and the Vault inventory, resolves the classes,
-prints the host count and exits non-zero on any error. Run it before deploying. `monitor` does not need the `vault`
+prints the host count and exits non-zero on any error. With `personal_keys.request_url` set it appends
+` key_request=on` to the `ok:` line. Run it before deploying. `monitor` does not need the `vault`
 section, so a TUI-only config may omit it.
 
 Secrets are never in `config.yaml`. Tokens are in a separate mode-0600 file; Vault access comes from the
@@ -323,7 +325,7 @@ environment.
 ## API
 
 The contract is `specs/openapi/powermaster.yml`. Bodies are `application/json`. Unknown JSON fields are rejected
-with 400. All routes except `GET /v1/healthz` require `Authorization: Bearer <token>`. The examples use an
+with 400. All routes except `GET /v1/healthz` and `GET /v1/key-request` require `Authorization: Bearer <token>`. The examples use an
 example host `node01.lab.example`.
 
 Error body, every 4xx and 5xx:
@@ -381,6 +383,21 @@ token that made the request.
 - `GET /v1/events` (SSE, above).
 - `GET /v1/healthz`: no auth; 200 when serving with SQLite open, else 503. Does not check IPMI.
 - `GET /v1/stats`: `hosts_by_state`, `commands_running`, `last_power_error`, `last_command_at`, subscriber count.
+- `GET /v1/key-request`: no auth; see Key request discovery below.
+
+### Key request discovery
+
+The service advertises where its keys are requested. `GET /v1/key-request`, no authentication. `200` with
+`{"request_url": "<absolute URL>"}` when the service is configured with `personal_keys.request_url`; `404` when it
+is not. The tool must not rely on the body of a `404`. A tool may be given a request URL directly (a flag or an
+environment variable); that value replaces discovery, and discovery is then not called. A tool with a request URL
+from neither source behaves as it did before: a missing key is the same error as today. Discovery that fails any
+other way (a network error, a status other than `200` and `404`, a `request_url` that is not an absolute `http` or
+`https` URL) is an error the tool reports; it files nothing.
+
+The setting is optional and off by default, and works with any provider that speaks this contract (fixtures:
+`specs/fixtures/keyrequest/`). The route's row in the route table has auth `false`: no token is checked, and any
+`Authorization` header is ignored.
 
 ### Client module
 

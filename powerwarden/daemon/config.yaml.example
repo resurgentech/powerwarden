@@ -74,6 +74,12 @@ ui:
   # not end with "/", and use only letters, digits, . _ ~ - in each segment.
   path_prefix: ""
 
+# Optional. Advertise where a person requests a key for this service, at the
+# unauthenticated GET /v1/key-request. Must be an absolute http or https URL
+# with a host, no user information and no fragment. Unset: that route is 404.
+# personal_keys:
+#   request_url: https://keys.example.com/v1/services/powerwarden/requests
+
 # Optional seed for host capability tags (what a host can run when powered
 # on). Tags live in powerwarden's database and are edited with
 # PUT /v1/hosts/{hostname}/tags or the web UI. A host here is seeded only

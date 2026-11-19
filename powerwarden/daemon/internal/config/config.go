@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -26,9 +27,18 @@ type Config struct {
 	Limits      Limits      `yaml:"limits"`
 	Events      Events      `yaml:"events"`
 	UI          UI          `yaml:"ui"`
+	// PersonalKeys is optional and off by default.
+	PersonalKeys PersonalKeys `yaml:"personal_keys"`
 	// HostTags seeds host capability tags into the database for hosts that
 	// have none stored. The database value wins once set.
 	HostTags map[string][]string `yaml:"host_tags"`
+}
+
+// PersonalKeys configures key request discovery.
+type PersonalKeys struct {
+	// RequestURL is advertised unauthenticated by GET /v1/key-request: where a
+	// person requests a key for this service. Empty turns the route off (404).
+	RequestURL string `yaml:"request_url"`
 }
 
 type Powermaster struct {
@@ -301,6 +311,9 @@ func (c Config) Validate() error {
 	if err := validPathPrefix(c.UI.PathPrefix); err != nil {
 		bad("ui.path_prefix %q: %v", c.UI.PathPrefix, err)
 	}
+	if err := validRequestURL(c.PersonalKeys.RequestURL); err != nil {
+		bad("personal_keys.request_url %q: %v", c.PersonalKeys.RequestURL, err)
+	}
 	// Name tags (a host's full and short name) are reserved: no host_tags
 	// value may equal any host_tags key or its short form.
 	reserved := map[string]bool{}
@@ -330,6 +343,31 @@ func sortedKeys(m map[string][]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// validRequestURL accepts "" (off) or an absolute http or https URL with a
+// host, no userinfo (it is advertised unauthenticated) and no fragment.
+func validRequestURL(s string) error {
+	if s == "" {
+		return nil
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return errors.New("not a valid URL")
+	}
+	if sc := strings.ToLower(u.Scheme); sc != "http" && sc != "https" {
+		return errors.New("must be an absolute http or https URL")
+	}
+	if u.Hostname() == "" {
+		return errors.New("must have a host")
+	}
+	if u.User != nil {
+		return errors.New("must not contain user information")
+	}
+	if u.Fragment != "" || strings.Contains(s, "#") {
+		return errors.New("must not contain a fragment")
+	}
+	return nil
 }
 
 // headerName is an RFC 9110 field-name token.

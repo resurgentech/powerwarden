@@ -211,6 +211,43 @@ func TestUIProxyRequiredKeys(t *testing.T) {
 	}
 }
 
+func TestPersonalKeysRequestURL(t *testing.T) {
+	if Default().PersonalKeys.RequestURL != "" {
+		t.Fatal("request_url has a default")
+	}
+	cfg, err := parseReq("")
+	if err != nil || cfg.PersonalKeys.RequestURL != "" {
+		t.Fatalf("absent: %+v %v", cfg, err)
+	}
+	for _, u := range []string{
+		"https://keys.example.com/v1/services/powerwarden/requests",
+		"http://provider.example:8080/req?x=1",
+		"HTTPS://Keys.Example.com/r",
+	} {
+		cfg, err := parseReq("personal_keys:\n  request_url: \"" + u + "\"\n")
+		if err != nil || cfg.PersonalKeys.RequestURL != u {
+			t.Errorf("%q: %q %v", u, cfg.PersonalKeys.RequestURL, err)
+		}
+	}
+	for name, y := range map[string]string{
+		"relative":    "personal_keys:\n  request_url: /v1/requests\n",
+		"no scheme":   "personal_keys:\n  request_url: keys.example.com/r\n",
+		"ftp":         "personal_keys:\n  request_url: ftp://keys.example.com/r\n",
+		"no host":     "personal_keys:\n  request_url: \"https:///r\"\n",
+		"userinfo":    "personal_keys:\n  request_url: https://u:p@keys.example.com/r\n",
+		"fragment":    "personal_keys:\n  request_url: https://keys.example.com/r#f\n",
+		"unknown key": "personal_keys:\n  request_url: https://keys.example.com/r\n  url: https://keys.example.com\n",
+	} {
+		_, err := parseReq(y)
+		if err == nil || !strings.Contains(err.Error(), "request_url") && name != "unknown key" {
+			t.Errorf("%s: %v", name, err)
+		}
+		if name == "unknown key" && (err == nil || !strings.Contains(err.Error(), "url")) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
 func TestUIAuthRejects(t *testing.T) {
 	cases := map[string]struct{ y, want string }{
 		"unknown auth":             {"ui:\n  auth: oauth\n", "ui.auth"},

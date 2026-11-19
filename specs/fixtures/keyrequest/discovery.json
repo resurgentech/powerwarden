@@ -1,0 +1,11 @@
+{
+  "summary": "Discovery: a request URL",
+  "description": "GET /v1/key-request on a service that is configured with a request URL. No authentication.",
+  "x-status": 200,
+  "x-headers": {
+    "Content-Type": "application/json"
+  },
+  "value": {
+    "request_url": "https://provider.example/v1/services/example/requests"
+  }
+}

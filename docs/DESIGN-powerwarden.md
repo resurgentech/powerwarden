@@ -531,13 +531,14 @@ key with its default. Unknown keys are a startup error. Durations use Go syntax.
 | `ui.auth` | `htpasswd` | `htpasswd` (basic auth) or `proxy` (identity from reverse-proxy headers, see Web UI) |
 | `ui.proxy.secret_file`, `secret_header`, `user_header` | none | Required with `ui.auth: proxy`, an error otherwise. Secret file: one secret per line, at least 16 characters, mode 0600 (startup fails if any group or other permission bit is set). Two distinct header names |
 | `ui.path_prefix` | `""` | Serve the UI under `<prefix>/ui` (for a reverse proxy that keeps the prefix). Empty, or `/segment[/segment...]` with no trailing `/` and segments of letters, digits, `. _ ~ -`; no `..` |
+| `personal_keys.request_url` | none (off) | Optional. Absolute `http`/`https` URL (host required, no user information, no fragment) advertised by `GET /v1/key-request`; unset, that route is 404 |
 | `host_tags` | none | Optional seed: `hostname: [tags]`, applied only to hosts with no stored tags |
 
 `powerwarden check-config [--config PATH] [--tokens-file PATH]` loads the config, then the tokens file with the
 loader `serve` uses; `--tokens-file` overrides `tokens_file` so a rendered pair can be checked off-box. A missing or
 invalid tokens file exits 1. Success prints `ok: listen=… powermaster=… tokens=N (full=a, agent=b)`; token values
 are never printed. With `ui.auth: proxy` it also loads the proxy secret file with the loader `serve` uses (a
-group- or other-accessible, empty or short-line file exits 1) and appends ` ui=proxy`; no secret is printed. It does not load the
+group- or other-accessible, empty or short-line file exits 1) and appends ` ui=proxy`; no secret is printed. With `personal_keys.request_url` set it appends ` key_request=on` (after `ui=proxy` if both). It does not load the
 htpasswd file.
 
 Secrets are never in `config.yaml`: the tokens, the powermaster token and the htpasswd are separate files.
@@ -545,7 +546,7 @@ Secrets are never in `config.yaml`: the tokens, the powermaster token and the ht
 ## API
 
 The contract is `specs/openapi/powerwarden.yml`. Bodies are `application/json`. Unknown fields are rejected with
-400. All `/v1` routes except `GET /v1/healthz` require `Authorization: Bearer <token>`. The error body is
+400. All `/v1` routes except `GET /v1/healthz` and `GET /v1/key-request` require `Authorization: Bearer <token>`. The error body is
 `{"error": "<code>", "message": "..."}`; codes are `unauthorized`, `bad_request`, `forbidden`, `not_found`,
 `conflict`, `capacity`, `claim_expired`, `claim_failed`, `claim_not_ready`, `action_not_allowed`, `host_shared`,
 `worker_busy`, `host_locked`, `command_in_flight`, `powermaster_unreachable`.
@@ -634,6 +635,21 @@ know the host. An empty list stores "no capability": the host is never powered o
   `powermaster: connected | unreachable`. No inventory.
 - `GET /v1/stats`: `last_reconcile_at`, `demands_open`, `demands_covered`, `demands_uncovered`, `workers_fresh`,
   `hosts_by_policy`, `last_power_request`.
+- `GET /v1/key-request`: no auth; see Key request discovery below.
+
+### Key request discovery
+
+The service advertises where its keys are requested. `GET /v1/key-request`, no authentication. `200` with
+`{"request_url": "<absolute URL>"}` when the service is configured with `personal_keys.request_url`; `404` when it
+is not. The tool must not rely on the body of a `404`. A tool may be given a request URL directly (a flag or an
+environment variable); that value replaces discovery, and discovery is then not called. A tool with a request URL
+from neither source behaves as it did before: a missing key is the same error as today. Discovery that fails any
+other way (a network error, a status other than `200` and `404`, a `request_url` that is not an absolute `http` or
+`https` URL) is an error the tool reports; it files nothing.
+
+The setting is optional and off by default, and works with any provider that speaks this contract (fixtures:
+`specs/fixtures/keyrequest/`). The route is registered with `RoleNone` in `routeRoles`: no token is checked, and a
+token's role is never `none`.
 
 ### Client module
 

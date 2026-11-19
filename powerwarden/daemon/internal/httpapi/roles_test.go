@@ -161,8 +161,8 @@ func TestAgentDeleteOtherOwnersClaim(t *testing.T) {
 	}
 }
 
-// Every spec operation has a role decision in the route table, and every
-// registered route has one too.
+// Every spec operation has a role decision in the route table, and a row is
+// RoleNone exactly when the spec operation overrides security to none.
 func TestEverySpecOperationHasRoleDecision(t *testing.T) {
 	doc, err := api.GetSwagger()
 	if err != nil {
@@ -170,13 +170,16 @@ func TestEverySpecOperationHasRoleDecision(t *testing.T) {
 	}
 	n := 0
 	for path, item := range doc.Paths.Map() {
-		if path == "/v1/healthz" {
-			continue // the one unauthenticated route
-		}
-		for method := range item.Operations() {
+		for method, op := range item.Operations() {
 			n++
-			if _, ok := RouteRole(method + " " + path); !ok {
+			r, ok := RouteRole(method + " " + path)
+			if !ok {
 				t.Errorf("no role decision for %s %s", method, path)
+				continue
+			}
+			noAuth := op.Security != nil && len(*op.Security) == 0
+			if noAuth != (r == RoleNone) {
+				t.Errorf("%s %s: spec no-auth=%v but role %q", method, path, noAuth, r)
 			}
 		}
 	}

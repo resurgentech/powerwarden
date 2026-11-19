@@ -102,6 +102,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 			suffix = " ui=proxy"
 		}
+		if cfg.PersonalKeys.RequestURL != "" {
+			suffix += " key_request=on"
+		}
 		fmt.Fprintf(stdout, "ok: listen=%s powermaster=%s tokens=%d (full=%d, agent=%d)%s\n",
 			cfg.Listen, cfg.Powermaster.URL, full+agent, full, agent, suffix)
 		return 0

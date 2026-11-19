@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -131,6 +132,49 @@ type Config struct {
 	Timings          Timings          `yaml:"timings"`
 	Classes          map[string]Class `yaml:"classes"`
 	TUI              TUIConfig        `yaml:"tui"`
+	// PersonalKeys is optional and off by default.
+	PersonalKeys PersonalKeys `yaml:"personal_keys"`
+}
+
+// PersonalKeys configures key request discovery.
+type PersonalKeys struct {
+	// RequestURL is advertised unauthenticated by GET /v1/key-request: where a
+	// person requests a key for this service. Empty turns the route off (404).
+	RequestURL string `yaml:"request_url"`
+}
+
+// CheckSuffix is appended to the `powermaster check` ok line: " key_request=on"
+// when personal_keys.request_url is set, else empty.
+func (c Config) CheckSuffix() string {
+	if c.PersonalKeys.RequestURL != "" {
+		return " key_request=on"
+	}
+	return ""
+}
+
+// validRequestURL accepts "" (off) or an absolute http or https URL with a
+// host, no userinfo (it is advertised unauthenticated) and no fragment.
+func validRequestURL(s string) error {
+	if s == "" {
+		return nil
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return errors.New("not a valid URL")
+	}
+	if sc := strings.ToLower(u.Scheme); sc != "http" && sc != "https" {
+		return errors.New("must be an absolute http or https URL")
+	}
+	if u.Hostname() == "" {
+		return errors.New("must have a host")
+	}
+	if u.User != nil {
+		return errors.New("must not contain user information")
+	}
+	if u.Fragment != "" || strings.Contains(s, "#") {
+		return errors.New("must not contain a fragment")
+	}
+	return nil
 }
 
 func sec(n int) Duration { return Duration(time.Duration(n) * time.Second) }
@@ -264,6 +308,9 @@ func (c Config) Validate() error {
 	}
 	if c.TUI.LockedForceDelay < 0 {
 		return fmt.Errorf("tui.locked_force_delay must be >= 0")
+	}
+	if err := validRequestURL(c.PersonalKeys.RequestURL); err != nil {
+		return fmt.Errorf("personal_keys.request_url %q: %v", c.PersonalKeys.RequestURL, err)
 	}
 	if err := checkTimings("timings", c.Timings.overrides()); err != nil {
 		return err

@@ -28,6 +28,9 @@ type Server struct {
 	log       *slog.Logger
 	heartbeat time.Duration
 	mux       *http.ServeMux
+	// keyRequestURL is personal_keys.request_url; empty makes
+	// GET /v1/key-request answer 404.
+	keyRequestURL string
 }
 
 // Options configure a Server.
@@ -36,6 +39,8 @@ type Options struct {
 	Tokens    *Tokens
 	Log       *slog.Logger
 	Heartbeat time.Duration // events.heartbeat; default 15s
+	// KeyRequestURL is personal_keys.request_url; empty: the route is 404.
+	KeyRequestURL string
 }
 
 type route struct {
@@ -49,7 +54,7 @@ func New(o Options) (*Server, error) {
 	if o.Manager == nil || o.Tokens == nil {
 		return nil, errors.New("httpapi: manager and tokens are required")
 	}
-	s := &Server{mgr: o.Manager, tokens: o.Tokens, log: o.Log, heartbeat: o.Heartbeat, mux: http.NewServeMux()}
+	s := &Server{mgr: o.Manager, tokens: o.Tokens, log: o.Log, heartbeat: o.Heartbeat, mux: http.NewServeMux(), keyRequestURL: o.KeyRequestURL}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -87,6 +92,7 @@ func (s *Server) routes() []route {
 		{"GET", "/v1/commands/{id}", true, s.getCommand},
 		{"GET", "/v1/events", true, s.streamEvents},
 		{"GET", "/v1/healthz", false, s.healthz},
+		{"GET", "/v1/key-request", false, s.keyRequest},
 		{"GET", "/v1/stats", true, s.stats},
 	}
 }
@@ -298,6 +304,15 @@ func (s *Server) getCommand(w http.ResponseWriter, r *http.Request, _ string) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toCommand(c))
+}
+
+// keyRequest advertises where keys are requested; no authentication.
+func (s *Server) keyRequest(w http.ResponseWriter, r *http.Request, _ string) {
+	if s.keyRequestURL == "" {
+		writeError(w, http.StatusNotFound, api.ErrorCodeNotFound, "no key request URL configured")
+		return
+	}
+	writeJSON(w, http.StatusOK, api.KeyRequestDiscovery{RequestUrl: s.keyRequestURL})
 }
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request, _ string) {

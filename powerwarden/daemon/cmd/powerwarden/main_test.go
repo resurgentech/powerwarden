@@ -171,6 +171,35 @@ func TestCheckConfigProxyMode(t *testing.T) {
 	}
 }
 
+func TestCheckConfigKeyRequestSuffix(t *testing.T) {
+	tok := writeTokens(t, "hourchd: \"aaaaaaaaaaaaaaaa-1\"\n")
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+	y := "powermaster:\n  url: http://pm.example:8092\npersonal_keys:\n  request_url: https://keys.example.com/r\n"
+	if err := os.WriteFile(cfg, []byte(y), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"check-config", "--config", cfg, "--tokens-file", tok}, &out, &errb); code != 0 {
+		t.Fatalf("%d: %s", code, errb.String())
+	}
+	if !strings.HasSuffix(out.String(), "tokens=1 (full=1, agent=0) key_request=on\n") {
+		t.Fatalf("output %q", out.String())
+	}
+	// With proxy mode too: the suffix follows ui=proxy.
+	out.Reset()
+	pc := proxyConfigFile(t, 0o600, "0123456789abcdef-test-secret\n")
+	b, _ := os.ReadFile(pc)
+	if err := os.WriteFile(pc, append(b, []byte("personal_keys:\n  request_url: https://keys.example.com/r\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"check-config", "--config", pc, "--tokens-file", tok}, &out, &errb); code != 0 {
+		t.Fatalf("%d: %s", code, errb.String())
+	}
+	if !strings.HasSuffix(out.String(), " ui=proxy key_request=on\n") {
+		t.Fatalf("output %q", out.String())
+	}
+}
+
 func TestCheckConfigHtpasswdModeLineUnchanged(t *testing.T) {
 	tok := writeTokens(t, "hourchd: \"aaaaaaaaaaaaaaaa-1\"\n")
 	var out, errb bytes.Buffer

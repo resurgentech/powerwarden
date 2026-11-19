@@ -181,6 +181,30 @@ func TestBuildProxyModeDoesNotReadHtpasswd(t *testing.T) {
 	}
 }
 
+func TestBuildKeyRequestRoute(t *testing.T) {
+	const u = "https://keys.example.com/v1/services/powerwarden/requests"
+	for _, want := range []string{"", u} {
+		cfg := proxyCfg(t, 0o600)
+		cfg.PersonalKeys.RequestURL = want
+		d, err := build(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := httptest.NewRecorder()
+		d.handler.ServeHTTP(rec, httptest.NewRequest("GET", "/v1/key-request", nil))
+		d.Close()
+		if want == "" {
+			if rec.Code != 404 || !strings.Contains(rec.Body.String(), `"not_found"`) {
+				t.Fatalf("unset: %d %s", rec.Code, rec.Body)
+			}
+			continue
+		}
+		if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != `{"request_url":"`+u+`"}` {
+			t.Fatalf("set: %d %s", rec.Code, rec.Body)
+		}
+	}
+}
+
 func TestBuildProxyModeRejectsReadableSecret(t *testing.T) {
 	for _, mode := range []os.FileMode{0o644, 0o640, 0o604, 0o620, 0o602, 0o610, 0o601} {
 		d, err := build(proxyCfg(t, mode), slog.New(slog.NewTextHandler(io.Discard, nil)), nil)

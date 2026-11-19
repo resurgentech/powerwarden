@@ -17,6 +17,10 @@ var tokenNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.@-]{1,64}$`)
 const (
 	RoleFull  = "full"
 	RoleAgent = "agent"
+	// RoleNone marks a route that checks no token. It is a route-table value
+	// only: a token never has it (the loader rejects it) and roleAllows never
+	// grants it.
+	RoleNone = "none"
 )
 
 // TokenEntry is one tokens.yaml entry. An empty Role means full.
@@ -140,6 +144,8 @@ func (t *Tokens) Role(name string) string { return t.roles[name] }
 // route pattern. Register panics on a route missing here, and a test walks every
 // spec operation against it. PWC8a adds its handler for the power row below.
 var routeRoles = map[string]string{
+	"GET /v1/healthz":                  RoleNone,
+	"GET /v1/key-request":              RoleNone,
 	"GET /v1/demands":                  RoleAgent,
 	"GET /v1/demands/{id}":             RoleAgent,
 	"PUT /v1/demands/{id}":             RoleFull,

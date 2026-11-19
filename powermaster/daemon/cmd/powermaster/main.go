@@ -98,7 +98,12 @@ func check(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("ok: %s resolves against the inventory (%d hosts)\n", *cfgPath, n)
+	// Check validated the config, so loading it again cannot fail on content.
+	cfg, err := powermaster.LoadConfig(*cfgPath)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("ok: %s resolves against the inventory (%d hosts)%s\n", *cfgPath, n, cfg.CheckSuffix())
 	return nil
 }
 
@@ -147,7 +152,8 @@ func serve(ctx context.Context, args []string) error {
 	if err := mgr.Start(runCtx); err != nil {
 		return err
 	}
-	api, err := httpapi.New(httpapi.Options{Manager: mgr, Tokens: tokens, Log: log, Heartbeat: cfg.Events.Heartbeat.D()})
+	api, err := httpapi.New(httpapi.Options{Manager: mgr, Tokens: tokens, Log: log, Heartbeat: cfg.Events.Heartbeat.D(),
+		KeyRequestURL: cfg.PersonalKeys.RequestURL})
 	if err != nil {
 		return err
 	}

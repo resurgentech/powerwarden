@@ -86,8 +86,14 @@ func TestClientHasEveryOperation(t *testing.T) {
 	}
 }
 
+// unauthenticated lists the only operations with an empty security override.
+var unauthenticated = map[string]bool{
+	"GET /v1/healthz":     true,
+	"GET /v1/key-request": true,
+}
+
 // TestHealthzIsUnauthenticated checks the global bearerAuth requirement and
-// its empty override on /v1/healthz.
+// its empty override on /v1/healthz and /v1/key-request, and on nothing else.
 func TestHealthzIsUnauthenticated(t *testing.T) {
 	file, _ := loadSpecs(t)
 	if len(file.Security) != 1 {
@@ -97,10 +103,14 @@ func TestHealthzIsUnauthenticated(t *testing.T) {
 		t.Fatalf("global security is not bearerAuth: %v", file.Security)
 	}
 	for k, op := range allOps(file) {
-		isHealthz := k == "GET /v1/healthz"
 		empty := op.Security != nil && len(*op.Security) == 0
-		if isHealthz != empty {
-			t.Errorf("%s: security override %v (only /v1/healthz may be unauthenticated)", k, op.Security)
+		if unauthenticated[k] != empty {
+			t.Errorf("%s: security override %v (only /v1/healthz and /v1/key-request may be unauthenticated)", k, op.Security)
+		}
+	}
+	for k := range unauthenticated {
+		if _, ok := allOps(file)[k]; !ok {
+			t.Errorf("unauthenticated operation %s missing from the spec", k)
 		}
 	}
 }
