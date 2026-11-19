@@ -20,6 +20,7 @@ import (
 
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/config"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/httpapi"
+	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/ui"
 )
 
 const defaultConfig = "/etc/powerwarden/config.yaml"
@@ -90,8 +91,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "ok: listen=%s powermaster=%s tokens=%d (full=%d, agent=%d)\n",
-			cfg.Listen, cfg.Powermaster.URL, full+agent, full, agent)
+		// Proxy mode also loads the secret file with serve's loader, so a bad
+		// mode or content shows here. Htpasswd mode loads nothing, as before.
+		suffix := ""
+		if cfg.UI.Enabled && cfg.UI.Auth == "proxy" {
+			p := cfg.UI.Proxy
+			if _, err := ui.LoadProxyAuth(p.SecretFile, p.SecretHeader, p.UserHeader); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			suffix = " ui=proxy"
+		}
+		fmt.Fprintf(stdout, "ok: listen=%s powermaster=%s tokens=%d (full=%d, agent=%d)%s\n",
+			cfg.Listen, cfg.Powermaster.URL, full+agent, full, agent, suffix)
 		return 0
 	case "serve":
 		if err := fs.Parse(args[1:]); err != nil {

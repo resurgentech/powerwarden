@@ -117,3 +117,66 @@ func TestCheckConfig(t *testing.T) {
 		t.Fatal("no args should be usage")
 	}
 }
+
+func proxyConfigFile(t *testing.T, secretMode os.FileMode, secretBody string) string {
+	t.Helper()
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "ui-proxy.secret")
+	if err := os.WriteFile(secret, []byte(secretBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(secret, secretMode); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "config.yaml")
+	y := "powermaster:\n  url: http://pm.example:8092\nui:\n  auth: proxy\n  htpasswd_file: " + filepath.Join(dir, "absent.htpasswd") +
+		"\n  proxy:\n    secret_file: " + secret + "\n    secret_header: X-Example-Proxy-Secret\n    user_header: X-Example-User\n"
+	if err := os.WriteFile(cfg, []byte(y), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func TestCheckConfigProxyMode(t *testing.T) {
+	const secret = "0123456789abcdef-test-secret"
+	tok := writeTokens(t, "hourchd: \"aaaaaaaaaaaaaaaa-1\"\n")
+	var out, errb bytes.Buffer
+	if code := run([]string{"check-config", "--config", proxyConfigFile(t, 0o600, secret+"\n"), "--tokens-file", tok}, &out, &errb); code != 0 {
+		t.Fatalf("proxy config rejected (%d): %s", code, errb.String())
+	}
+	if !strings.HasPrefix(out.String(), "ok: listen=") || !strings.Contains(out.String(), "tokens=1 (full=1, agent=0) ui=proxy") {
+		t.Fatalf("output %q", out.String())
+	}
+	if strings.Contains(out.String()+errb.String(), secret) {
+		t.Fatal("secret in output")
+	}
+
+	for name, c := range map[string]struct {
+		mode os.FileMode
+		body string
+	}{
+		"readable":   {0o644, secret + "\n"},
+		"empty":      {0o600, "# none\n"},
+		"short line": {0o600, "short\n"},
+	} {
+		out.Reset()
+		errb.Reset()
+		if code := run([]string{"check-config", "--config", proxyConfigFile(t, c.mode, c.body), "--tokens-file", tok}, &out, &errb); code != 1 {
+			t.Errorf("%s: code %d", name, code)
+		}
+		if errb.Len() == 0 || strings.Contains(out.String()+errb.String(), secret) || strings.Contains(out.String(), "ok:") {
+			t.Errorf("%s: out %q err %q", name, out.String(), errb.String())
+		}
+	}
+}
+
+func TestCheckConfigHtpasswdModeLineUnchanged(t *testing.T) {
+	tok := writeTokens(t, "hourchd: \"aaaaaaaaaaaaaaaa-1\"\n")
+	var out, errb bytes.Buffer
+	if code := run([]string{"check-config", "--config", "../../config.yaml.example", "--tokens-file", tok}, &out, &errb); code != 0 {
+		t.Fatalf("%d: %s", code, errb.String())
+	}
+	if strings.Contains(out.String(), "ui=") || !strings.HasSuffix(out.String(), "tokens=1 (full=1, agent=0)\n") {
+		t.Fatalf("output %q", out.String())
+	}
+}

@@ -158,3 +158,71 @@ func TestUIPathPrefix(t *testing.T) {
 		}
 	}
 }
+
+const proxyYAML = "ui:\n  auth: proxy\n  proxy:\n    secret_file: /etc/powerwarden/ui-proxy.secret\n    secret_header: X-Example-Proxy-Secret\n    user_header: X-Example-User\n"
+
+func TestUIAuthDefaultsToHtpasswd(t *testing.T) {
+	if got := Default().UI.Auth; got != "htpasswd" {
+		t.Fatalf("default ui.auth = %q", got)
+	}
+	cfg, err := parseReq("ui:\n  auth: htpasswd\n")
+	if err != nil || cfg.UI.Auth != "htpasswd" {
+		t.Fatalf("explicit htpasswd: %v %q", err, cfg.UI.Auth)
+	}
+	if p := Default().UI.Proxy; p != (UIProxy{}) {
+		t.Fatalf("ui.proxy has defaults: %+v", p)
+	}
+}
+
+func TestUIProxyAuth(t *testing.T) {
+	cfg, err := parseReq(proxyYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UI.Auth != "proxy" || cfg.UI.Proxy.SecretFile != "/etc/powerwarden/ui-proxy.secret" ||
+		cfg.UI.Proxy.SecretHeader != "X-Example-Proxy-Secret" || cfg.UI.Proxy.UserHeader != "X-Example-User" {
+		t.Fatalf("%+v", cfg.UI)
+	}
+	// ui.enabled false: the proxy keys are not required.
+	if _, err := parseReq("ui:\n  enabled: false\n  auth: proxy\n"); err != nil {
+		t.Fatalf("disabled UI: %v", err)
+	}
+}
+
+func TestUIProxyRequiredKeys(t *testing.T) {
+	keys := []string{"secret_file", "secret_header", "user_header"}
+	for _, key := range keys {
+		y := "ui:\n  auth: proxy\n  proxy:\n"
+		for _, k := range keys {
+			if k != key {
+				y += "    " + k + ": X-Example-" + strings.ReplaceAll(k, "_", "-") + "\n"
+			}
+		}
+		_, err := parseReq(y)
+		if err == nil || !strings.Contains(err.Error(), "ui.proxy."+key) {
+			t.Errorf("missing %s: %v", key, err)
+		}
+	}
+	_, err := parseReq("ui:\n  auth: proxy\n")
+	for _, key := range keys {
+		if err == nil || !strings.Contains(err.Error(), "ui.proxy."+key) {
+			t.Errorf("all missing, %s not named: %v", key, err)
+		}
+	}
+}
+
+func TestUIAuthRejects(t *testing.T) {
+	cases := map[string]struct{ y, want string }{
+		"unknown auth":             {"ui:\n  auth: oauth\n", "ui.auth"},
+		"bad secret header":        {strings.Replace(proxyYAML, "X-Example-Proxy-Secret", "X Bad", 1), "ui.proxy.secret_header"},
+		"bad user header":          {strings.Replace(proxyYAML, "X-Example-User", "X:Bad", 1), "ui.proxy.user_header"},
+		"same headers":             {strings.Replace(proxyYAML, "X-Example-User", "x-example-proxy-secret", 1), "differ"},
+		"proxy keys with htpasswd": {"ui:\n  proxy:\n    user_header: X-Example-User\n", "ui.proxy"},
+	}
+	for name, c := range cases {
+		_, err := parseReq(c.y)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v (want %q)", name, err, c.want)
+		}
+	}
+}

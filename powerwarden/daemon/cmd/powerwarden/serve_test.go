@@ -129,3 +129,67 @@ func TestServeWiring(t *testing.T) {
 		t.Fatal("no powerup within 1s of the demand")
 	}
 }
+
+const proxyTestSecret = "0123456789abcdef-test-secret"
+
+// proxyCfg is a wired config for ui.auth: proxy. The htpasswd path does not
+// exist: proxy mode must not read it.
+func proxyCfg(t *testing.T, secretMode os.FileMode) config.Config {
+	t.Helper()
+	var powered atomic.Int32
+	pmSrv := fakePowermaster(t, &powered)
+	dir := t.TempDir()
+	cfg := config.Default()
+	cfg.StatePath = filepath.Join(dir, "state.db")
+	cfg.TokensFile = write(t, dir, "tokens.yaml", "hourchd: hourchd-token-0123456789\n")
+	cfg.Powermaster.URL = pmSrv.URL
+	cfg.Powermaster.TokenFile = write(t, dir, "powermaster.token", "pm-token\n")
+	cfg.UI.HtpasswdFile = filepath.Join(dir, "does-not-exist.htpasswd")
+	cfg.UI.Auth = "proxy"
+	secret := write(t, dir, "ui-proxy.secret", proxyTestSecret+"\n")
+	if err := os.Chmod(secret, secretMode); err != nil {
+		t.Fatal(err)
+	}
+	cfg.UI.Proxy = config.UIProxy{SecretFile: secret, SecretHeader: "X-Example-Proxy-Secret", UserHeader: "X-Example-User"}
+	return cfg
+}
+
+func TestBuildProxyModeDoesNotReadHtpasswd(t *testing.T) {
+	cfg := proxyCfg(t, 0o600)
+	d, err := build(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	if err != nil {
+		t.Fatalf("proxy mode with a missing htpasswd file: %v", err)
+	}
+	defer d.Close()
+	do := func(mod func(*http.Request)) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/ui/hosts", nil)
+		mod(req)
+		rec := httptest.NewRecorder()
+		d.handler.ServeHTTP(rec, req)
+		return rec
+	}
+	rec := do(func(r *http.Request) {
+		r.Header.Set("X-Example-Proxy-Secret", proxyTestSecret)
+		r.Header.Set("X-Example-User", "alice")
+	})
+	if rec.Code != 200 {
+		t.Fatalf("proxy request: %d", rec.Code)
+	}
+	rec = do(func(r *http.Request) { r.SetBasicAuth("alice", "pw") })
+	if rec.Code != 401 || rec.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("basic auth in proxy mode: %d %q", rec.Code, rec.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestBuildProxyModeRejectsReadableSecret(t *testing.T) {
+	for _, mode := range []os.FileMode{0o644, 0o640, 0o604} {
+		d, err := build(proxyCfg(t, mode), slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+		if err == nil {
+			d.Close()
+			t.Fatalf("mode %o accepted", mode)
+		}
+		if !strings.Contains(err.Error(), "mode") || strings.Contains(err.Error(), proxyTestSecret) {
+			t.Fatalf("mode %o: %v", mode, err)
+		}
+	}
+}

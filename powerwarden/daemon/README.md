@@ -19,7 +19,7 @@ powermaster to power hosts up, down or off at the PDU. It holds no hardware cred
 | `internal/events` | SSE hub for `/v1/events` and `/ui/events` |
 | `internal/app` | operations shared by the API and the UI |
 | `internal/httpapi` | `/v1` handlers (generated `powerwardenapi` types), named bearer tokens |
-| `internal/ui` | `/ui`: `html/template`, `EventSource` script, `go:embed`, htpasswd basic auth |
+| `internal/ui` | `/ui`: `html/template`, `EventSource` script, `go:embed`, htpasswd basic auth or proxy identity |
 
 ## Build and test
 
@@ -53,12 +53,14 @@ just build                # binary at cmd/powerwarden/powerwarden
   - `agent` (user tokens): every `GET` (including `/v1/events`) and `PUT`/`POST`/`DELETE` under `/v1/claims*`. It gets 403 `forbidden` on `PUT`/`DELETE /v1/demands*`, `PUT`/`DELETE /v1/workers*`, `PUT /v1/hosts/{h}/tags` and `PUT /v1/hosts/{h}/exclude`, and cannot release another owner's claim. Enforced in `internal/httpapi/tokens.go` (`routeRoles`).
 - `powermaster.token_file`: powerwarden's token for powermaster.
 - `ui.htpasswd_file`: when `ui.enabled`. bcrypt entries only (`htpasswd -B`).
+- `ui.auth`: `htpasswd` (default) or `proxy`. In `proxy` mode `ui.proxy.secret_file`, `ui.proxy.secret_header` and `ui.proxy.user_header` are all required (no defaults) and `ui.htpasswd_file` is not read. The secret file holds one secret per line (16+ characters) and must not be readable by group or others (`chmod 600`), or startup fails. `check-config` loads it too and prints `ui=proxy`.
 - `ui.path_prefix`: default empty. Set (e.g. `/powerwarden`) when a reverse proxy serves the UI under a path prefix it does not strip; the UI is then at `<prefix>/ui`.
 
 ## Auth
 
 - `/v1/*` uses `Authorization: Bearer <token>`, except `GET /v1/healthz`.
-- `/ui/*` uses htpasswd basic auth. The browser's `EventSource` cannot send a bearer header, so the UI's live feed is `/ui/events`: the same hub as `/v1/events`, behind basic auth.
+- With `ui.auth: proxy`, `/ui/*` takes its identity from headers set by a reverse proxy that authenticates users: the request needs the secret header (equal to a line of the secret file, compared in constant time) and a user header naming a valid user (`^[A-Za-z0-9_.@-]{1,64}$`), else 401 with no `WWW-Authenticate`. There is no basic-auth prompt and no htpasswd in this mode. The UI caller is `ui:<user>`. The proxy must strip client-supplied copies of both headers and be the only way to reach the listen address.
+- `/ui/*` uses htpasswd basic auth by default. The browser's `EventSource` cannot send a bearer header, so the UI's live feed is `/ui/events`: the same hub as `/v1/events`, behind basic auth.
 - UI POSTs must carry an `Origin` (or `Referer`) whose host equals the request `Host`. This is the CSRF guard, so a reverse proxy in front must preserve `Host`.
 - The UI's writes are the exclude toggle, host tags, manual demands and detached claims (create, release). It has no power buttons; manual power stays in `powermaster monitor`.
 

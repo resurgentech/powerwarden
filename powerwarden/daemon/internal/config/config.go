@@ -87,6 +87,21 @@ type UI struct {
 	// PathPrefix serves the UI under <prefix>/ui for a reverse proxy that
 	// neither strips nor rewrites the prefix. Empty serves at /ui.
 	PathPrefix string `yaml:"path_prefix"`
+	// Auth is "htpasswd" (default: basic auth against HtpasswdFile) or "proxy"
+	// (identity from headers set by a reverse proxy that authenticates users).
+	Auth  string  `yaml:"auth"`
+	Proxy UIProxy `yaml:"proxy"`
+}
+
+// UIProxy configures ui.auth: proxy. All three keys are required in that
+// mode and have no defaults: header names are a property of the proxy setup.
+type UIProxy struct {
+	// SecretFile holds one shared secret per line (blank lines and # comments
+	// skipped); a request is accepted when SecretHeader equals any line.
+	// Rotation is two lines. The file must not be readable by group or others.
+	SecretFile   string `yaml:"secret_file"`
+	SecretHeader string `yaml:"secret_header"`
+	UserHeader   string `yaml:"user_header"`
 }
 
 // Default returns the documented defaults.
@@ -130,7 +145,7 @@ func Default() Config {
 		},
 		Limits: Limits{MaxDemands: 500, MaxClaims: 64, MaxTags: 32, DecisionsKept: 500},
 		Events: Events{RingSize: 1000, Heartbeat: 15 * time.Second},
-		UI:     UI{Enabled: true, HtpasswdFile: "/etc/powerwarden/ui.htpasswd"},
+		UI:     UI{Enabled: true, HtpasswdFile: "/etc/powerwarden/ui.htpasswd", Auth: "htpasswd"},
 	}
 }
 
@@ -252,8 +267,36 @@ func (c Config) Validate() error {
 	if c.Events.RingSize <= 0 || c.Events.Heartbeat <= 0 {
 		bad("events.ring_size and events.heartbeat must be > 0")
 	}
-	if c.UI.Enabled && c.UI.HtpasswdFile == "" {
-		bad("ui.htpasswd_file is required when ui.enabled")
+	switch c.UI.Auth {
+	case "htpasswd":
+		if c.UI.Enabled && c.UI.HtpasswdFile == "" {
+			bad("ui.htpasswd_file is required when ui.enabled")
+		}
+		if c.UI.Proxy != (UIProxy{}) {
+			bad("ui.proxy.* is set but ui.auth is not proxy")
+		}
+	case "proxy":
+		// ui.htpasswd_file is neither required nor read in proxy mode.
+		if c.UI.Enabled {
+			p := c.UI.Proxy
+			for _, k := range []struct{ key, val string }{
+				{"secret_file", p.SecretFile}, {"secret_header", p.SecretHeader}, {"user_header", p.UserHeader},
+			} {
+				if k.val == "" {
+					bad("ui.proxy.%s is required when ui.auth is proxy", k.key)
+				}
+			}
+			for _, k := range []struct{ key, val string }{{"secret_header", p.SecretHeader}, {"user_header", p.UserHeader}} {
+				if k.val != "" && !headerName.MatchString(k.val) {
+					bad("ui.proxy.%s %q is not a valid HTTP header field name", k.key, k.val)
+				}
+			}
+			if p.SecretHeader != "" && strings.EqualFold(p.SecretHeader, p.UserHeader) {
+				bad("ui.proxy.secret_header and ui.proxy.user_header must differ (case-insensitively)")
+			}
+		}
+	default:
+		bad("ui.auth %q: want htpasswd or proxy", c.UI.Auth)
 	}
 	if err := validPathPrefix(c.UI.PathPrefix); err != nil {
 		bad("ui.path_prefix %q: %v", c.UI.PathPrefix, err)
@@ -288,6 +331,9 @@ func sortedKeys(m map[string][]string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// headerName is an RFC 9110 field-name token.
+var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 var prefixSegment = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 

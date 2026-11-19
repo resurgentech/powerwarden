@@ -51,7 +51,24 @@ events:
 
 ui:
   enabled: true
+  # How the UI knows who you are: "htpasswd" (default; basic auth against
+  # htpasswd_file) or "proxy" (a reverse proxy authenticates users and sends the
+  # name and a shared secret in headers; htpasswd_file is then not read).
+  # auth: htpasswd
   htpasswd_file: /etc/powerwarden/ui.htpasswd
+  # Only for auth: proxy. All three keys are required then, and none has a
+  # default (header names depend on your proxy). Setting them with auth: htpasswd
+  # is an error.
+  # proxy:
+  #   # One secret per line (at least 16 characters; blank lines and # comments
+  #   # skipped; two lines allow rotation). Startup fails if group or others can
+  #   # read the file: chmod 600.
+  #   secret_file: /etc/powerwarden/ui-proxy.secret
+  #   # Header the proxy sets to the shared secret.
+  #   secret_header: X-Example-Proxy-Secret
+  #   # Header the proxy sets to the authenticated user name
+  #   # (letters, digits, _ . @ -, at most 64; the UI caller is "ui:<name>").
+  #   user_header: X-Example-User
   # Serve the UI under <path_prefix>/ui for a reverse proxy that does not strip
   # the prefix, e.g. "/powerwarden". Empty serves at /ui. Must start with "/",
   # not end with "/", and use only letters, digits, . _ ~ - in each segment.

@@ -144,7 +144,7 @@ Defaults; all in `config.yaml`.
 | `internal/events` | SSE hub for `/v1/events` and `/ui/events` |
 | `internal/app` | Operations shared by the API and the UI |
 | `internal/httpapi` | `/v1` handlers (generated types), named bearer tokens and roles |
-| `internal/ui` | `/ui`: templates, `EventSource` script, htpasswd basic auth |
+| `internal/ui` | `/ui`: templates, `EventSource` script, htpasswd basic auth or proxy identity |
 
 ### Who calls whom
 
@@ -466,6 +466,27 @@ Behind a reverse proxy that gives each service a path prefix and neither strips 
 `EventSource` URL carries the prefix (templates use `{{base}}`; `app.js` reads `<body data-base>`), and the site root,
 `<prefix>` and `<prefix>/` redirect to `<prefix>/ui/hosts`. With the default empty prefix every URL is `/ui/...`.
 
+**Proxy identity** (`ui.auth: proxy`; the default is `htpasswd`, as above). A reverse proxy that authenticates users
+(for example one doing forward authentication) tells the UI who they are:
+
+- **Settings.** `ui.proxy.secret_file`, `ui.proxy.secret_header` and `ui.proxy.user_header` are all required in proxy
+  mode, with no defaults. The header names must be valid HTTP header names and differ. `ui.htpasswd_file` is neither
+  read nor required; `ui.proxy.*` with `ui.auth: htpasswd` is a startup error.
+- **Secret check.** A request is accepted only when the secret header equals a line of the secret file. The file has
+  one secret per line (at least 16 characters; blank lines and `#` comments skipped), so two lines allow rotation.
+  The daemon keeps SHA-256 hashes and compares the header's hash with every stored hash in constant time, with no
+  early exit. Each header must carry exactly one value.
+- **Secret file mode.** If group or others can read the file, startup fails (and `check-config` exits 1); `chmod 600`.
+- **Username.** Taken from the user header; it must match the service's name rule (`^[A-Za-z0-9_.@-]{1,64}$`, the
+  token-name rule). Otherwise the request gets 401.
+- **No other login.** A wrong or missing secret or a bad name gets a plain 401 with no `WWW-Authenticate`, so a
+  browser shows no prompt. Proxy mode has no basic-auth prompt and no htpasswd; basic-auth credentials are ignored.
+- **Caller.** The UI caller is `ui:<user>`, and the UI keeps its same-origin check on POSTs. `/v1` is unchanged.
+- **Trust.** The proxy must strip any client-supplied copy of both headers before setting its own, and must be the
+  only thing that can reach the daemon's listen address. Otherwise the shared secret is all that stands between a
+  client and impersonating any user, so keep it out of logs and rotate it by adding a second line, switching the
+  proxy, then removing the first.
+
 - **Hosts.** Power state (read-only, from powermaster), tags, name tags, locked, excluded, policy status (busy-held
   until, idle dwell, booting, boot grace, cooldown, cold off in mm:ss), paired demand, workers, claims. Exclude
   toggle and tags editor.
@@ -506,13 +527,17 @@ key with its default. Unknown keys are a startup error. Durations use Go syntax.
 | `limits.max_demands`, `max_claims`, `max_tags`, `decisions_kept` | `500`, `64`, `32`, `500` | Capacity |
 | `events.ring_size`, `events.heartbeat` | `1000`, `15s` | SSE resume ring and heartbeat |
 | `ui.enabled`, `ui.htpasswd_file` | `true`, `/etc/powerwarden/ui.htpasswd` | Web UI |
+| `ui.auth` | `htpasswd` | `htpasswd` (basic auth) or `proxy` (identity from reverse-proxy headers, see Web UI) |
+| `ui.proxy.secret_file`, `secret_header`, `user_header` | none | Required with `ui.auth: proxy`, an error otherwise. Secret file: one secret per line, at least 16 characters, mode 0600 (startup fails if group or others can read it). Two distinct header names |
 | `ui.path_prefix` | `""` | Serve the UI under `<prefix>/ui` (for a reverse proxy that keeps the prefix). Empty, or `/segment[/segment...]` with no trailing `/` and segments of letters, digits, `. _ ~ -`; no `..` |
 | `host_tags` | none | Optional seed: `hostname: [tags]`, applied only to hosts with no stored tags |
 
 `powerwarden check-config [--config PATH] [--tokens-file PATH]` loads the config, then the tokens file with the
 loader `serve` uses; `--tokens-file` overrides `tokens_file` so a rendered pair can be checked off-box. A missing or
 invalid tokens file exits 1. Success prints `ok: listen=… powermaster=… tokens=N (full=a, agent=b)`; token values
-are never printed.
+are never printed. With `ui.auth: proxy` it also loads the proxy secret file with the loader `serve` uses (a
+readable, empty or short-line file exits 1) and appends ` ui=proxy`; no secret is printed. It does not load the
+htpasswd file.
 
 Secrets are never in `config.yaml`: the tokens, the powermaster token and the htpasswd are separate files.
 
@@ -711,7 +736,8 @@ from the leaf (template: `images.env.example` at the repository root):
 - `config.yaml` with `powermaster.url` set (the only required key), and optionally `host_tags`.
 - `tokens.yaml` (0600): one `full` token for the scheduler, one per operator, `agent` tokens for user machines.
 - `powermaster.token`: powerwarden's entry in powermaster's `tokens.yaml`.
-- `ui.htpasswd` (bcrypt, `htpasswd -B`) when the UI is enabled.
+- `ui.htpasswd` (bcrypt, `htpasswd -B`) when the UI is enabled with the default `ui.auth: htpasswd`; with
+  `ui.auth: proxy`, the proxy secret file (0600) instead.
 - A persistent volume at `/var/lib/powerwarden` on local disk.
 - Network reach to powermaster. No Vault access: powerwarden reads no inventory secrets.
 - A TLS-terminating reverse proxy in front that preserves `Host`: the daemon serves plain HTTP.
@@ -756,7 +782,7 @@ services:
 |---|---|---|
 | Stolen powerwarden token pins hosts on | Medium | Tokens kept in a secret store, written 0600 only on the powerwarden host and operator machines; `max_demands` and `max_claims` caps; agent role for user machines |
 | Stolen powermaster token from powerwarden's container | High | No BMC credentials in powerwarden; powermaster still enforces `locked` |
-| UI used without auth | Medium | htpasswd basic auth over TLS; same-origin check on POSTs; UI writes limited to exclude, tags, manual demands and claims |
+| UI used without auth | Medium | htpasswd basic auth over TLS, or proxy identity (shared-secret header compared in constant time, 0600 secret file, user name checked against the name rule, 401 otherwise; the proxy must strip client copies of the headers and be the only route to the listener); same-origin check on POSTs; UI writes limited to exclude, tags, manual demands and claims |
 | Demand id or tag used for injection | Low | Regexes on PUT; `external_ref` never fetched; templates auto-escape |
 
 No CORS. Identical 401 bodies. `healthz` returns no inventory. `check-config` never prints a token value.

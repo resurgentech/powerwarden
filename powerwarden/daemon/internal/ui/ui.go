@@ -1,14 +1,16 @@
 // Package ui is powerwarden's operator web UI at <ui.path_prefix>/ui (default
 // /ui): html/template pages, live updates over <prefix>/ui/events (the same
-// hub as /v1/events), and three
-// actions (exclude toggle, create and delete manual demands). Everything is
-// behind htpasswd basic auth; POSTs also pass an Origin/Referer check. The UI
+// hub as /v1/events), and three actions (exclude toggle, create and delete
+// manual demands). Everything is
+// behind htpasswd basic auth (or, with ui.auth: proxy, identity headers from a
+// reverse proxy, see proxy.go); POSTs also pass an Origin/Referer check. The UI
 // only calls internal/app; it never talks to powermaster and has no power
 // buttons (manual power stays in `powermaster monitor`).
 package ui
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
@@ -38,6 +40,8 @@ var assets embed.FS
 type UI struct {
 	App   *app.App
 	Users *Htpasswd
+	// Proxy, when set, replaces Users: identity comes from proxy headers.
+	Proxy *ProxyAuth
 	Log   *slog.Logger
 
 	pages map[string]*template.Template
@@ -75,6 +79,16 @@ func New(a *app.App, users *Htpasswd, log *slog.Logger) (*UI, error) {
 	return u, nil
 }
 
+// NewProxy is New for ui.auth: proxy: no htpasswd, no basic-auth prompt.
+func NewProxy(a *app.App, p *ProxyAuth, log *slog.Logger) (*UI, error) {
+	u, err := New(a, nil, log)
+	if err != nil {
+		return nil, err
+	}
+	u.Proxy = p
+	return u, nil
+}
+
 // Register adds the <prefix>/ui routes to mux.
 func (u *UI) Register(mux *http.ServeMux) {
 	static, _ := fs.Sub(assets, "static")
@@ -108,17 +122,34 @@ func (u *UI) Register(mux *http.ServeMux) {
 
 // ---- auth and CSRF ----
 
+type userKey struct{}
+
+// auth authenticates the request (htpasswd basic auth, or proxy identity when
+// u.Proxy is set) and stores the user name in the request context for user(r).
+// In proxy mode basic-auth credentials are ignored and a 401 carries no
+// WWW-Authenticate, so a browser never shows a login prompt.
 func (u *UI) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, pass, ok := r.BasicAuth()
-		if !ok || !u.Users.Check(user, pass) {
-			w.Header().Set("WWW-Authenticate", `Basic realm="powerwarden", charset="UTF-8"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
+		var name string
+		if u.Proxy != nil {
+			n, ok := u.Proxy.Identify(r)
+			if !ok {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			name = n
+		} else {
+			n, pass, ok := r.BasicAuth()
+			if !ok || !u.Users.Check(n, pass) {
+				w.Header().Set("WWW-Authenticate", `Basic realm="powerwarden", charset="UTF-8"`)
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			name = n
 		}
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey{}, name)))
 	})
 }
 
@@ -433,8 +464,9 @@ func (u *UI) postReleaseClaim(w http.ResponseWriter, r *http.Request) {
 	u.back(w, r, "claims", err, "claim "+id+" released")
 }
 
+// user is the name auth() authenticated, in either mode.
 func user(r *http.Request) string {
-	n, _, _ := r.BasicAuth()
+	n, _ := r.Context().Value(userKey{}).(string)
 	return n
 }
 

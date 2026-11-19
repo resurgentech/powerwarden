@@ -89,14 +89,26 @@ func build(cfg config.Config, log *slog.Logger, transport http.RoundTripper) (*d
 	mux := http.NewServeMux()
 	(&httpapi.Server{App: a, Tokens: tokens, Log: log}).Register(mux)
 	if cfg.UI.Enabled {
-		users, err := ui.LoadHtpasswd(cfg.UI.HtpasswdFile)
-		if err != nil {
-			return nil, err
+		var u *ui.UI
+		if cfg.UI.Auth == "proxy" {
+			// Proxy identity: the htpasswd file is not read.
+			p, err := ui.LoadProxyAuth(cfg.UI.Proxy.SecretFile, cfg.UI.Proxy.SecretHeader, cfg.UI.Proxy.UserHeader)
+			if err != nil {
+				return nil, err
+			}
+			if u, err = ui.NewProxy(a, p, log); err != nil {
+				return nil, err
+			}
+		} else {
+			users, err := ui.LoadHtpasswd(cfg.UI.HtpasswdFile)
+			if err != nil {
+				return nil, err
+			}
+			if u, err = ui.New(a, users, log); err != nil {
+				return nil, err
+			}
 		}
-		u, err := ui.New(a, users, log)
-		if err != nil {
-			return nil, err
-		}
+		log.Info("ui auth", "mode", cfg.UI.Auth)
 		u.Register(mux)
 	}
 	d.handler = mux
