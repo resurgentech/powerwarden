@@ -21,7 +21,7 @@ info:
       `config.yaml.example` defaults; the server enforces its configured values.
 
     The operator web UI (`/ui`, HTML, basic auth) is not part of this spec.
-  version: 0.2.0
+  version: 0.3.0
 servers:
   - url: http://localhost:8091
     description: local default; use your deployment's URL
@@ -727,6 +727,10 @@ paths:
     get:
       tags: [meta]
       summary: Counters for the UI header
+      description: |
+        `personal_keys` is present only when the daemon setting
+        `personal_keys.url` is set: the health of the pulled key list. It never
+        holds a hash, a token or a URL with credentials.
       operationId: getStats
       responses:
         '200':
@@ -1451,6 +1455,17 @@ components:
             Absolute `http` or `https` URL where a key request is filed with
             `POST`.
           example: https://provider.example/v1/services/example/requests
+    PersonalKeysStatus:
+      type: object
+      required: [origin, entries, cache_failing]
+      properties:
+        origin:        {type: string, enum: [none, cache, provider]}
+        entries:       {type: integer}
+        age_seconds:   {type: integer, description: Age of the live list; absent when origin is none}
+        list_time:     {type: string, format: date-time, description: When the live list was last known good; absent when origin is none}
+        last_success:  {type: string, format: date-time, description: Last good pull in this process; absent if none}
+        last_error:    {type: string, description: "The latest pull error, made safe (printable, at most 200 characters); absent when the latest pull succeeded"}
+        cache_failing: {type: boolean}
     PowerRequestSummary:
       type: object
       required: [at, hostname, action, command_id]
@@ -1493,3 +1508,5 @@ components:
           allOf:
             - $ref: '#/components/schemas/PowerRequestSummary'
           nullable: true
+        personal_keys:
+          $ref: '#/components/schemas/PersonalKeysStatus'
