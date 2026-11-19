@@ -61,8 +61,8 @@ ui:
   # is an error.
   # proxy:
   #   # One secret per line (at least 16 characters; blank lines and # comments
-  #   # skipped; two lines allow rotation). Startup fails if group or others can
-  #   # read the file: chmod 600.
+  #   # skipped; two lines allow rotation). Startup fails if the file has any
+  #   # group or other permission bit: chmod 600.
   #   secret_file: /etc/powerwarden/ui-proxy.secret
   #   # Header the proxy sets to the shared secret.
   #   secret_header: X-Example-Proxy-Secret

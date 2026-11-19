@@ -38,3 +38,11 @@ are appended, never edited in; a hook refuses rewrites.
   appends ` ui=proxy`. htpasswd mode unchanged; `sameOrigin` and `/v1` untouched. Design doc, README, example.
 - Release: `powerwarden/daemon/v0.2.0` (tag to be created after review).
 - Commits: the A6b commit on branch `phase-a-ui` (this entry ships in it).
+
+## 2026-11-19 — A6b follow-up: stricter secret-file mode; fail-fast bad-secret test
+
+- `ui.proxy.secret_file` is now refused when any group or other permission bit is set (`perm & 0o077`, the rule
+  the token loaders use), not only the read bits; docs, example and tests updated. `TestProxyRejectsBadSecret`
+  reads status only under a deadline, so a broken secret check fails at once instead of hanging on `/ui/events`.
+  The `powerwarden/daemon/v0.2.0` tag moves to this commit.
+- Commits: the follow-up commit on top of 70d8c94 on branch `phase-a-ui` (this entry ships in it).

@@ -29,16 +29,17 @@ type ProxyAuth struct {
 	hashes                   [][sha256.Size]byte
 }
 
-// LoadProxyAuth reads the secret file at path. It fails when group or others
-// can read the file, when no secret is present or when a line is shorter than
+// LoadProxyAuth reads the secret file at path. It fails when any group or
+// other permission bit is set (perm & 0o077, the same rule as the token
+// loaders), when no secret is present or when a line is shorter than
 // 16 characters. Errors name the path or the line number, never a secret.
 func LoadProxyAuth(path, secretHeader, userHeader string) (*ProxyAuth, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("ui proxy secret file: %w", err)
 	}
-	if perm := fi.Mode().Perm(); perm&0o044 != 0 {
-		return nil, fmt.Errorf("ui proxy secret file %s: mode %04o lets group or others read it; chmod 600 it", path, perm)
+	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+		return nil, fmt.Errorf("ui proxy secret file %s: mode %04o gives group or others access; chmod 600 it", path, perm)
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {

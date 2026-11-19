@@ -53,7 +53,7 @@ just build                # binary at cmd/powerwarden/powerwarden
   - `agent` (user tokens): every `GET` (including `/v1/events`) and `PUT`/`POST`/`DELETE` under `/v1/claims*`. It gets 403 `forbidden` on `PUT`/`DELETE /v1/demands*`, `PUT`/`DELETE /v1/workers*`, `PUT /v1/hosts/{h}/tags` and `PUT /v1/hosts/{h}/exclude`, and cannot release another owner's claim. Enforced in `internal/httpapi/tokens.go` (`routeRoles`).
 - `powermaster.token_file`: powerwarden's token for powermaster.
 - `ui.htpasswd_file`: when `ui.enabled`. bcrypt entries only (`htpasswd -B`).
-- `ui.auth`: `htpasswd` (default) or `proxy`. In `proxy` mode `ui.proxy.secret_file`, `ui.proxy.secret_header` and `ui.proxy.user_header` are all required (no defaults) and `ui.htpasswd_file` is not read. The secret file holds one secret per line (16+ characters) and must not be readable by group or others (`chmod 600`), or startup fails. `check-config` loads it too and prints `ui=proxy`.
+- `ui.auth`: `htpasswd` (default) or `proxy`. In `proxy` mode `ui.proxy.secret_file`, `ui.proxy.secret_header` and `ui.proxy.user_header` are all required (no defaults) and `ui.htpasswd_file` is not read. The secret file holds one secret per line (16+ characters) and must have no group or other permission bit set (`chmod 600`; the same rule as the tokens file), or startup fails. `check-config` loads it too and prints `ui=proxy`.
 - `ui.path_prefix`: default empty. Set (e.g. `/powerwarden`) when a reverse proxy serves the UI under a path prefix it does not strip; the UI is then at `<prefix>/ui`.
 
 ## Auth

@@ -476,7 +476,8 @@ Behind a reverse proxy that gives each service a path prefix and neither strips 
   one secret per line (at least 16 characters; blank lines and `#` comments skipped), so two lines allow rotation.
   The daemon keeps SHA-256 hashes and compares the header's hash with every stored hash in constant time, with no
   early exit. Each header must carry exactly one value.
-- **Secret file mode.** If group or others can read the file, startup fails (and `check-config` exits 1); `chmod 600`.
+- **Secret file mode.** If any group or other permission bit is set (read, write or execute; `mode & 0077`), startup
+  fails (and `check-config` exits 1); `chmod 600`.
 - **Username.** Taken from the user header; it must match the service's name rule (`^[A-Za-z0-9_.@-]{1,64}$`, the
   token-name rule). Otherwise the request gets 401.
 - **No other login.** A wrong or missing secret or a bad name gets a plain 401 with no `WWW-Authenticate`, so a
@@ -528,7 +529,7 @@ key with its default. Unknown keys are a startup error. Durations use Go syntax.
 | `events.ring_size`, `events.heartbeat` | `1000`, `15s` | SSE resume ring and heartbeat |
 | `ui.enabled`, `ui.htpasswd_file` | `true`, `/etc/powerwarden/ui.htpasswd` | Web UI |
 | `ui.auth` | `htpasswd` | `htpasswd` (basic auth) or `proxy` (identity from reverse-proxy headers, see Web UI) |
-| `ui.proxy.secret_file`, `secret_header`, `user_header` | none | Required with `ui.auth: proxy`, an error otherwise. Secret file: one secret per line, at least 16 characters, mode 0600 (startup fails if group or others can read it). Two distinct header names |
+| `ui.proxy.secret_file`, `secret_header`, `user_header` | none | Required with `ui.auth: proxy`, an error otherwise. Secret file: one secret per line, at least 16 characters, mode 0600 (startup fails if any group or other permission bit is set). Two distinct header names |
 | `ui.path_prefix` | `""` | Serve the UI under `<prefix>/ui` (for a reverse proxy that keeps the prefix). Empty, or `/segment[/segment...]` with no trailing `/` and segments of letters, digits, `. _ ~ -`; no `..` |
 | `host_tags` | none | Optional seed: `hostname: [tags]`, applied only to hosts with no stored tags |
 
@@ -536,7 +537,7 @@ key with its default. Unknown keys are a startup error. Durations use Go syntax.
 loader `serve` uses; `--tokens-file` overrides `tokens_file` so a rendered pair can be checked off-box. A missing or
 invalid tokens file exits 1. Success prints `ok: listen=… powermaster=… tokens=N (full=a, agent=b)`; token values
 are never printed. With `ui.auth: proxy` it also loads the proxy secret file with the loader `serve` uses (a
-readable, empty or short-line file exits 1) and appends ` ui=proxy`; no secret is printed. It does not load the
+group- or other-accessible, empty or short-line file exits 1) and appends ` ui=proxy`; no secret is printed. It does not load the
 htpasswd file.
 
 Secrets are never in `config.yaml`: the tokens, the powermaster token and the htpasswd are separate files.

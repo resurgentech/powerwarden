@@ -98,7 +98,7 @@ type UI struct {
 type UIProxy struct {
 	// SecretFile holds one shared secret per line (blank lines and # comments
 	// skipped); a request is accepted when SecretHeader equals any line.
-	// Rotation is two lines. The file must not be readable by group or others.
+	// Rotation is two lines. The file must have no group or other permission bit (0600).
 	SecretFile   string `yaml:"secret_file"`
 	SecretHeader string `yaml:"secret_header"`
 	UserHeader   string `yaml:"user_header"`

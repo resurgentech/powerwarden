@@ -182,7 +182,7 @@ func TestBuildProxyModeDoesNotReadHtpasswd(t *testing.T) {
 }
 
 func TestBuildProxyModeRejectsReadableSecret(t *testing.T) {
-	for _, mode := range []os.FileMode{0o644, 0o640, 0o604} {
+	for _, mode := range []os.FileMode{0o644, 0o640, 0o604, 0o620, 0o602, 0o610, 0o601} {
 		d, err := build(proxyCfg(t, mode), slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 		if err == nil {
 			d.Close()

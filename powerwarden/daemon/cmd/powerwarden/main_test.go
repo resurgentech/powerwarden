@@ -155,9 +155,10 @@ func TestCheckConfigProxyMode(t *testing.T) {
 		mode os.FileMode
 		body string
 	}{
-		"readable":   {0o644, secret + "\n"},
-		"empty":      {0o600, "# none\n"},
-		"short line": {0o600, "short\n"},
+		"readable":    {0o644, secret + "\n"},
+		"group write": {0o620, secret + "\n"},
+		"empty":       {0o600, "# none\n"},
+		"short line":  {0o600, "short\n"},
 	} {
 		out.Reset()
 		errb.Reset()

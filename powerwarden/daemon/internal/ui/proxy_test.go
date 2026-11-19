@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/apptest"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/config"
@@ -80,6 +81,27 @@ func (e *uenv) preq(t *testing.T, method, path string, form url.Values, mod func
 			mod(r)
 		}
 	})
+}
+
+// pstatus is a proxied GET that returns the status and headers without reading
+// the body, under a short deadline, so an event stream answered with 200 fails
+// the caller's assertion at once instead of blocking it.
+func (e *uenv) pstatus(t *testing.T, path string, mod func(*http.Request)) (int, http.Header) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", e.srv.URL+path, nil)
+	req.Header.Set(pxSecretHeader, pxSecret1)
+	req.Header.Set(pxUserHeader, "alice")
+	if mod != nil {
+		mod(req)
+	}
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode, resp.Header
 }
 
 func TestProxyAcceptsEitherSecretLine(t *testing.T) {
@@ -155,7 +177,9 @@ func TestProxyRejectsBadSecret(t *testing.T) {
 	}
 	for name, mod := range cases {
 		for _, p := range []string{"/ui/hosts", "/ui/events", "/ui/static/app.js"} {
-			code, _, hdr := e.preq(t, "GET", p, nil, mod)
+			// Status only, body never read: a wrongly accepted /ui/events is a
+			// 200 stream that would otherwise block this test.
+			code, hdr := e.pstatus(t, p, mod)
 			if code != 401 || hdr.Get("WWW-Authenticate") != "" {
 				t.Errorf("%s %s: %d WWW-Authenticate=%q", name, p, code, hdr.Get("WWW-Authenticate"))
 			}
@@ -256,7 +280,9 @@ func TestHtpasswdModeUnchangedByAuthSetting(t *testing.T) {
 // ---- secret file loader ----
 
 func TestLoadProxyAuthModes(t *testing.T) {
-	for _, mode := range []os.FileMode{0o640, 0o604, 0o644, 0o660, 0o666, 0o644 | 0o100} {
+	// Any group or other bit is refused (perm & 0o077), not just the read bits.
+	for _, mode := range []os.FileMode{0o640, 0o604, 0o644, 0o660, 0o666, 0o644 | 0o100,
+		0o620, 0o602, 0o610, 0o601, 0o611, 0o622, 0o700 | 0o010, 0o700 | 0o001} {
 		_, err := LoadProxyAuth(writeSecretFile(t, mode, pxSecret1+"\n"), pxSecretHeader, pxUserHeader)
 		if err == nil || !strings.Contains(err.Error(), "mode") || !strings.Contains(err.Error(), "chmod 600") {
 			t.Errorf("mode %o: %v", mode, err)
