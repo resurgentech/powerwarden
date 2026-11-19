@@ -1,0 +1,33 @@
+# powerwardenapi leaf. Generated client for specs/openapi/powerwarden.yml. Native justfile.
+
+spec := "../../specs/openapi/powerwarden.yml"
+gen := "powerwarden.gen.go"
+
+# List available recipes
+default:
+  @just --list
+
+# Regenerate the client, types and embedded spec from the OpenAPI spec
+generate:
+  go generate ./...
+
+# Run tests (spec coverage of the embedded spec and client)
+test:
+  go test ./...
+
+# Vet the module
+vet:
+  go vet ./...
+
+# Regenerate and fail if the committed output differs
+drift:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  before=$(sha256sum {{gen}})
+  go generate ./...
+  if [ "$(sha256sum {{gen}})" != "$before" ] || ! git diff --quiet -- {{gen}} || [ -n "$(git ls-files --others --exclude-standard -- {{gen}})" ]; then
+    echo "drift: {{gen}} is stale relative to {{spec}}; commit the output of 'just generate'" >&2
+    git --no-pager diff --stat -- {{gen}} >&2 || true
+    exit 1
+  fi
+  echo "drift: {{gen}} is up to date"

@@ -1,0 +1,16 @@
+# Local work queue and scratch (orch)
+/ROADMAP.md
+tmp/
+docs/reports/
+
+# Local image settings (see images.env.example)
+images.env
+
+# Extra CA staged by `just image`; only the placeholder is tracked
+**/cmd/*/extra-ca/*
+!**/cmd/*/extra-ca/.gitkeep
+
+# Built binaries
+/powermaster/daemon/cmd/powermaster/powermaster
+/powerwarden/daemon/cmd/powerwarden/powerwarden
+/powerwarden/mcp/cmd/pwrwrdn/pwrwrdn

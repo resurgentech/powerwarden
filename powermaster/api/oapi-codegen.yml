@@ -1,0 +1,9 @@
+package: powermasterapi
+output: powermaster.gen.go
+generate:
+  models: true
+  client: true
+  embedded-spec: true
+output-options:
+  # Keep component schemas no operation references (SSE event payloads).
+  skip-prune: true

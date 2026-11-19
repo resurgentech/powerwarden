@@ -1,0 +1,22 @@
+{{define "content"}}
+<h1>Workers</h1>
+<table>
+<thead><tr><th>Id</th><th>Hostname</th><th>Tags</th><th>Job status</th><th>Demand</th><th>Lease left</th><th>Busy hold left</th><th>Flags</th></tr></thead>
+<tbody>
+{{range .Workers}}
+<tr {{if .Expired}}class="expired"{{end}}>
+  <td>{{.WorkerId}}</td>
+  <td>{{.Hostname}}</td>
+  <td>{{join .Tags ", "}}</td>
+  <td>{{.JobStatus}}</td>
+  <td>{{.DemandId}}</td>
+  <td>{{if .Expired}}expired{{else}}{{.LeaseLeft}}{{end}}</td>
+  <td>{{.BusyHoldLeft}}</td>
+  <td>{{range .Flags}}<div class="bad flag">{{.}}</div>{{end}}</td>
+</tr>
+{{else}}
+<tr><td colspan="8" class="muted">No worker records.</td></tr>
+{{end}}
+</tbody>
+</table>
+{{end}}

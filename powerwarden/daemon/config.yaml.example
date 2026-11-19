@@ -1,0 +1,65 @@
+# config.yaml.example — powerwarden
+# Every key with its default. Unknown keys are a startup error.
+listen: ":8091"
+state_path: /var/lib/powerwarden/state.db
+tokens_file: /etc/powerwarden/tokens.yaml      # name -> token; mode 0600
+log_level: info                                 # debug | info | warn | error
+
+powermaster:
+  url: https://powermaster.lab.example     # REQUIRED (no default)
+  token_file: /etc/powerwarden/powermaster.token
+  request_timeout: 10s
+
+timings:
+  reconcile_interval: 15s
+  power_on_spacing: 15s
+  host_view_refresh: 60s
+  boot_grace: 5m
+  boot_cooldown: 10m
+  min_idle_time: 10m
+  busy_grace: 7200s
+  demand_lease_default: 3600s
+  demand_lease_min: 30s
+  demand_lease_max: 3600s
+  worker_lease_default: 90s
+  worker_lease_min: 15s
+  worker_lease_max: 300s
+  demand_sweep_after: 24h
+  worker_sweep_extra: 24h
+  cold_off_after: 1h           # soft_off dwell before a powercut; 0 disables powercut
+  # Claims. The lease is the liveness window a re-PUT renews; the cap
+  # (expires_at) moves only by extend. Requests outside min..max are clamped.
+  claim_lease_default: 15m
+  claim_lease_min: 60s
+  claim_lease_max: 1h
+  claim_cap_default: 8h
+  claim_cap_min: 15m
+  claim_cap_max: 72h
+  claim_restart_grace: 5m      # lease grace after a powerwarden restart (PWC8)
+  claim_wait_max: 60s          # longest blocking read on GET /v1/claims (PWC8b)
+  claim_sweep_after: 24h       # lapsed claims are deleted this long after lapsing
+
+limits:
+  max_demands: 500
+  max_claims: 64               # live claims incl. detached; more is 429 capacity
+  max_tags: 32
+  decisions_kept: 500
+
+events:
+  ring_size: 1000
+  heartbeat: 15s
+
+ui:
+  enabled: true
+  htpasswd_file: /etc/powerwarden/ui.htpasswd
+
+# Optional seed for host capability tags (what a host can run when powered
+# on). Tags live in powerwarden's database and are edited with
+# PUT /v1/hosts/{hostname}/tags or the web UI. A host here is seeded only
+# when it has no stored tags; the stored value wins after that. A host with
+# no stored tags has no capability: powerwarden never powers it on for a
+# demand.
+# Default: none.
+# host_tags:
+#   node01.lab.example: [kernel]
+#   node02.lab.example: [kernel]

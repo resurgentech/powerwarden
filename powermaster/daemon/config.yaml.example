@@ -1,0 +1,64 @@
+# config.yaml.example — powermaster
+# Every key with its default. Unknown keys are a startup error.
+# Durations use Go syntax (30s, 5m). Secrets never go in this file.
+listen: ":8092"
+state_path: /var/lib/powermaster/state.db
+tokens_file: /etc/powermaster/tokens.yaml    # name -> token; mode 0600; not in this file
+log_level: info                              # debug | info | warn | error
+
+vault:
+  addr_env: VAULT_ADDR                        # read from the environment, as today
+  token_env: VAULT_TOKEN
+  skip_verify_env: VAULT_SKIP_VERIFY
+  hosts_secret_path: infra/hosts              # REQUIRED for serve and check (no default): inventory: hosts, creds, locked
+
+polling:                                    # wait between polls, not a fixed cadence
+  ipmi_interval: 2s
+  network_interval: 2s
+  pdu_interval: 2s
+
+recovery_interval: 15s
+
+events:
+  ring_size: 1000
+  heartbeat: 15s
+
+# Defaults for every host and PDU. Classes override any subset.
+# A host's stage time is `timings`, overridden by the host's class.
+# `pdu_outlet_wait` for an outlet is `timings`, then the host's class, then the
+# PDU's class (the PDU class wins).
+timings:
+  pdu_outlet_wait: 30s
+  ipmi_ping_wait: 300s
+  chassis_on_wait: 300s
+  ping_ssh_wait: 300s
+  ssh_shutdown_wait: 10s
+  post_ssh_off_wait: 300s
+  ipmi_off_command_wait: 120s
+  final_off_wait: 300s
+  reboot_chassis_off_wait: 60s
+  reboot_pdu_settle: 30s
+  deadline_slack: 60s
+
+# Illustrative; the real list comes from your deployment. A host or PDU
+# in two classes, or a class naming one not in inventory, is a startup error.
+classes:
+  node:
+    hosts: [node01.lab.example, node02.lab.example, node03.lab.example, node04.lab.example]
+    timings:
+      chassis_on_wait: 240s
+  eaton:
+    pdus: [pdu01.lab.example]
+    timings:
+      pdu_outlet_wait: 20s
+  kasa:
+    pdus: [pdu02.lab.example]
+    timings:
+      pdu_outlet_wait: 10s
+
+tui:
+  api_url: ""   # base URL, e.g. https://powermaster.example.com; empty: POWERMASTER_URL, then ~/.config/powermaster/url
+  token_file: ~/.config/powermaster/token
+  locked_taps: 4
+  locked_tap_gap: 3s
+  locked_force_delay: 2s

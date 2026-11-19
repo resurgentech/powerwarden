@@ -1,0 +1,1449 @@
+openapi: 3.0.3
+info:
+  title: powerwarden API
+  description: |
+    Demand-driven host power policy (see docs/DESIGN-powerwarden.md).
+    powerwarden accepts **demand** (work waiting for a machine with certain
+    tags) and **worker liveness**, reconciles them against host state read
+    from powermaster, and asks powermaster to power hosts up or down. It holds
+    no hardware credentials.
+
+    Conventions:
+    - Request and response bodies are `application/json`.
+    - Unknown JSON fields in a request body are rejected with 400 `bad_request`.
+    - Every `/v1` route except `GET /v1/healthz` requires
+      `Authorization: Bearer <token>`. The 401 body is identical for a missing
+      and a wrong token.
+    - Every 4xx and 5xx response carries the `Error` body.
+    - Leases: a `PUT` carries `lease_seconds`; the server sets `lease_until`
+      from its own clock.
+    - Bounds below (lease min/max, `maxItems` on tags) are the
+      `config.yaml.example` defaults; the server enforces its configured values.
+
+    The operator web UI (`/ui`, HTML, basic auth) is not part of this spec.
+  version: 0.1.0
+servers:
+  - url: http://localhost:8091
+    description: local default; use your deployment's URL
+security:
+  - bearerAuth: []
+tags:
+  - name: demands
+  - name: workers
+  - name: claims
+  - name: hosts
+  - name: decisions
+  - name: events
+  - name: meta
+paths:
+  /v1/demands:
+    get:
+      tags: [demands]
+      summary: List open demands, oldest first
+      description: |
+        Unexpired demands. Each row carries `covered_by` from the last
+        reconcile pass.
+      operationId: listDemands
+      parameters:
+        - $ref: '#/components/parameters/IncludeExpired'
+      responses:
+        '200':
+          description: Demands
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Demand'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/demands/{id}:
+    parameters:
+      - $ref: '#/components/parameters/DemandId'
+    get:
+      tags: [demands]
+      summary: Get one demand
+      operationId: getDemand
+      parameters:
+        - $ref: '#/components/parameters/IncludeExpired'
+      responses:
+        '200':
+          description: Demand
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Demand'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [demands]
+      summary: Create or refresh a demand (idempotent)
+      description: |
+        If the body has `id`, it must equal the path. `lease_seconds` omitted
+        on create means `demand_lease_default` (3600s); omitted on refresh
+        keeps the stored value; sent, it replaces the stored value.
+        `created_at` is kept across refreshes. A new id when
+        `limits.max_demands` (500) demands are open is 429 `capacity`.
+      operationId: putDemand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DemandPut'
+      responses:
+        '200':
+          description: The stored demand
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Demand'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          description: '`capacity`: `limits.max_demands` reached for a new id.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [demands]
+      summary: Delete a demand
+      description: 204 whether or not the row existed.
+      operationId: deleteDemand
+      responses:
+        '204':
+          description: Deleted (or never existed)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/workers:
+    get:
+      tags: [workers]
+      summary: List worker liveness records
+      description: |
+        Hides rows with `lease_until <= now` unless `include_expired=true`.
+        Hidden rows still busy-hold their host until swept.
+      operationId: listWorkers
+      parameters:
+        - $ref: '#/components/parameters/IncludeExpired'
+      responses:
+        '200':
+          description: Workers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Worker'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/workers/{worker_id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkerId'
+    put:
+      tags: [workers]
+      summary: Create or refresh a worker liveness record (idempotent)
+      description: |
+        If the body has `worker_id`, it must equal the path. `lease_seconds`
+        omitted means `worker_lease_default` (90s). `busy` or `maintenance`
+        sets `last_busy_at`; `idle` clears it. A `hostname` that matches no
+        powermaster host is stored and flagged, and covers nothing.
+      operationId: putWorker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkerPut'
+      responses:
+        '200':
+          description: The stored worker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Worker'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    delete:
+      tags: [workers]
+      summary: Delete a worker liveness record (clean disconnect)
+      description: 204 whether or not the row existed.
+      operationId: deleteWorker
+      responses:
+        '204':
+          description: Deleted (or never existed)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/claims:
+    get:
+      tags: [claims]
+      summary: List claims, oldest first
+      description: |
+        Lapsed claims are hidden unless `include_expired=true`. Filters combine
+        with AND. `mine=true` means the caller's token name; combining it with
+        a different `owner` is 400. `hostname` matches the bound host.
+        The blocking read on this route comes later.
+      operationId: listClaims
+      parameters:
+        - name: owner
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: mine
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: hostname
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/IncludeExpired'
+      responses:
+        '200':
+          description: Claims
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Claim'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/claims/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ClaimId'
+    get:
+      tags: [claims]
+      summary: Get one claim, optionally blocking until it changes
+      description: |
+        A lapsed claim is 404 unless `include_expired=true`.
+
+        Blocking read: with `since=<version>` and `wait=<seconds>` the call
+        returns at once when `since` differs from the claim's current `version`
+        (so a change between two calls is never missed). When `since` equals
+        the current version it blocks until the version changes, the claim
+        lapses (410 `claim_expired`), the claim is deleted (404), the client
+        disconnects, or the wait ends. A timeout returns 200 with the unchanged
+        claim. The wait is `min(wait, claim_wait_max)`; `wait` omitted with
+        `since` given is the maximum (60s); `wait=0`, or no `since`, never blocks.
+        Lease renewals and extends do not change `version`, so they do not wake
+        a waiter.
+      operationId: getClaim
+      parameters:
+        - $ref: '#/components/parameters/IncludeExpired'
+        - name: wait
+          in: query
+          required: false
+          description: Seconds to block when `since` equals the current version. Clamped to `claim_wait_max` (60s).
+          schema:
+            type: integer
+            minimum: 0
+        - name: since
+          in: query
+          required: false
+          description: The `version` the caller last saw. Absent means do not block.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        '200':
+          description: Claim
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Claim'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/ClaimExpired'
+    put:
+      tags: [claims]
+      summary: Create or renew a claim (idempotent)
+      description: |
+        A claim is a lease an agent holds on one host, always chosen by tags:
+        there is no `hostname` field (a body with one is 400). To name a host,
+        use its name tag (`name_tags` on the host), alone or with other tags.
+
+        The owner is the bearer token's name, stored server side and never taken
+        from the body. `session` is kept from the creating PUT; a renew from
+        another session of the same owner is accepted and does not change it.
+        A token with another name is 403 `forbidden`.
+
+        Create: `mode` omitted is `hold`; `max_seconds` omitted is
+        `claim_cap_default` (8h); `lease_seconds` omitted is `claim_lease_default`
+        (15m). Values outside `claim_lease_min..max` (60s..1h) and
+        `claim_cap_min..max` (15m..72h) are clamped. `detached: true` means no
+        liveness lease: `lease_until` is null, the claim lives until `expires_at`
+        or a release, and `lease_seconds` with it is 400.
+
+        Re-PUT renews the lease (a no-op for a detached claim) and keeps
+        `created_at`, the binding, `purpose` and `expires_at`; `lease_seconds`
+        omitted keeps the stored value, `max_seconds` is ignored (use extend).
+        The body must restate the claim's `tags`, `mode` and `detached` (with
+        defaults applied); a difference is 409 `conflict`. A re-PUT after the
+        claim lapsed is 410 `claim_expired`; a re-PUT of a `failed` claim is 410
+        `claim_failed` with the detail in `message`. A new id when
+        `limits.max_claims` (64) live claims exist is 429 `capacity`; a `failed`
+        claim does not count.
+
+        Binding happens inside this call and is reported in `state` and
+        `detail`, never as an error: a busy, locked or excluded host does not
+        fail the PUT. Hosts whose name tags plus explicit tags cover the claim's
+        tags are candidates; locked and excluded hosts are dropped. No candidate
+        host at all is `failed` with detail `no_host`; candidates that are all
+        locked or excluded is `failed` with a detail naming each (final:
+        release and claim again); otherwise, if none is free for the mode
+        (`dedicated`: no live claims bound; `hold` and `reserve`: no live
+        `dedicated` claim bound) the claim is `pending` with detail
+        `waiting for <hosts>` until one frees; else `ready`.
+
+        A bound claim never moves: its `hostname` never changes, in any mode
+        (to move between hosts, use a demand). A `hold` or `reserve` claim whose
+        host is not `on` becomes `failed` when the host is locked (`host <h>
+        locked`), excluded (`host <h> excluded`) or its boot failed (`boot
+        failed on <h>`). Any claim whose host is gone from the inventory becomes
+        `failed` (`host <h> removed from inventory`). A `dedicated` claim is not
+        failed by lock, exclude or boot failure. A `failed` claim is final: it
+        keeps `hostname` as a record, holds nothing, and is swept
+        `claim_sweep_after` after it failed.
+      operationId: putClaim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimPut'
+      responses:
+        '200':
+          description: The stored claim
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Claim'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: '`conflict`: the body differs from the stored claim in `tags`, `mode` or `detached`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          $ref: '#/components/responses/ClaimExpired'
+        '429':
+          description: '`capacity`: `limits.max_claims` reached for a new id (detached claims count).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [claims]
+      summary: Release a claim
+      description: |
+        204 whether or not the claim existed. The owner may release from any
+        session. Another token name is 403 `forbidden`, except a `full`-role
+        token, which may release any claim (operator release, like the web UI).
+      operationId: deleteClaim
+      responses:
+        '204':
+          description: Released (or never existed)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/claims/{id}/extend:
+    parameters:
+      - $ref: '#/components/parameters/ClaimId'
+    post:
+      tags: [claims]
+      summary: Move a claim's hard cap
+      description: |
+        Sets `expires_at = now + max_seconds`, clamped to `claim_cap_min`
+        (15m) and `claim_cap_max` (72h). Changes nothing else. Works for
+        detached claims. A lapsed claim is 410 `claim_expired`; a `failed` claim is
+        410 `claim_failed`; an unknown id
+        is 404; another token name is 403 `forbidden`.
+      operationId: extendClaim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimExtend'
+      responses:
+        '200':
+          description: The claim after the change
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Claim'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/ClaimExpired'
+  /v1/claims/{id}/power:
+    parameters:
+      - $ref: '#/components/parameters/ClaimId'
+    post:
+      tags: [claims]
+      summary: Power command for the host of a claim, by its owner
+      description: |
+        Powerwarden checks the claim, then calls powermaster with its own
+        token and `reason: "claim <id> by <owner>"`; the agent never holds a
+        powermaster token. The reply is powermaster's command object: 202 when
+        the command was queued, 200 when the host is already there.
+
+        Allowed actions: `hold` and `reserve` claims, `powerup` and `reboot`;
+        `dedicated` claims, `powerup`, `powerdown`, `powercut` and `reboot`.
+        Only the claim's owner may call it (a `full` token that is not the
+        owner gets 403 too).
+
+        Refusals, checked in this order: 403 `forbidden`; 410 `claim_expired`;
+        410 `claim_failed`; 409 `claim_not_ready` (not bound, or `draining`); 409
+        `action_not_allowed`; 409 `host_shared` (`hold`/`reserve`: another
+        owner also has a live claim on the host); 409 `worker_busy`
+        (`hold`/`reserve`: a fresh worker on the host is `busy` or
+        `maintenance`); 409 `host_locked` (no force on this path); 409
+        `command_in_flight` (from powermaster; any other powermaster 409 is
+        `conflict`); 502 `powermaster_unreachable`.
+
+        A `dedicated` claim has only these refusals: `forbidden`,
+        `claim_expired`, `claim_failed`, `claim_not_ready`, `host_locked`, `command_in_flight`,
+        502. Once it is `ready`, a busy hourchd worker never blocks its power
+        actions; the grant-time draining is its only protection. A command sent
+        while a worker on the host is busy is logged at warn and recorded as
+        decision `claim_power_over_busy_worker`.
+
+        After `reboot` or `powerup` on a `hold` or `reserve` claim, the claim is
+        `pending` until the host is `on` again.
+      operationId: claimPower
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimPower'
+      responses:
+        '200':
+          description: The host is already in the requested state; powermaster's command object (already succeeded).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Command'
+        '202':
+          description: The command was queued; powermaster's command object.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Command'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: '`claim_not_ready`, `action_not_allowed`, `host_shared`, `worker_busy`, `host_locked`, `command_in_flight`, or `conflict` (another powermaster refusal).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          $ref: '#/components/responses/ClaimExpired'
+        '502':
+          description: '`powermaster_unreachable`: powermaster did not answer or answered unusably.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/hosts:
+    get:
+      tags: [hosts]
+      summary: List hosts (policy view joined with the powermaster view)
+      description: |
+        `?tags=a,b` returns only hosts whose explicit tags plus name tags cover
+        every listed tag (the same match claims use). Each tag must match the
+        tag pattern, else 400.
+      operationId: listHosts
+      parameters:
+        - name: tags
+          in: query
+          required: false
+          description: Comma-separated tags; a host must carry all of them (explicit or name tags).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Hosts, in powermaster inventory order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HostView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/hosts/{hostname}:
+    parameters:
+      - $ref: '#/components/parameters/Hostname'
+    get:
+      tags: [hosts]
+      summary: Get one host's policy view
+      operationId: getHost
+      responses:
+        '200':
+          description: Host
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/hosts/{hostname}/exclude:
+    parameters:
+      - $ref: '#/components/parameters/Hostname'
+    put:
+      tags: [hosts]
+      summary: Set or clear exclude (never auto-managed while excluded)
+      operationId: putHostExclude
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExcludePut'
+      responses:
+        '200':
+          description: The host view after the change
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/hosts/{hostname}/tags:
+    parameters:
+      - $ref: '#/components/parameters/Hostname'
+    put:
+      tags: [hosts]
+      summary: Set a host's capability tags (replaces the config.yaml seed)
+      description: |
+        Stored in powerwarden's database. `host_tags` in config.yaml only seeds
+        hosts that have no stored tags; once set here, the stored value wins.
+        An empty list means the host is never powered on for demand.
+      operationId: putHostTags
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostTagsPut'
+      responses:
+        '200':
+          description: The host view after the change
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/decisions:
+    get:
+      tags: [decisions]
+      summary: Recent reconcile actions and skips, newest first
+      description: The last `limits.decisions_kept` (500) decisions, held in memory.
+      operationId: listDecisions
+      responses:
+        '200':
+          description: Decisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Decision'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/events:
+    get:
+      tags: [events]
+      summary: Server-sent event stream of demand, worker, claim, host and decision changes
+      description: |
+        `text/event-stream`. Each event is one SSE message:
+
+        ```
+        id: <seq>
+        event: demand | worker | claim | host | decision | resync
+        data: <one JSON object: DemandEvent | WorkerEvent | ClaimEvent | HostEvent | DecisionEvent | ResyncEvent>
+        ```
+
+        `seq` is monotonically increasing and is also the SSE `id`. Resume
+        works as in powermaster: a client reconnecting with `Last-Event-ID`
+        gets every event still in the ring (`events.ring_size`, default 1000)
+        or a `resync` event telling it to re-read the list routes. A comment
+        heartbeat (`: heartbeat`) is sent every `events.heartbeat` (15s).
+      operationId: streamEvents
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: The `seq` of the last event the client saw; resume after it.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE stream; each `data` line is a JSON `Event` (see components.schemas.Event).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/healthz:
+    get:
+      tags: [meta]
+      summary: Liveness and readiness
+      description: |
+        No authentication. 200 when serving with SQLite open, else 503.
+        Reports the powermaster connection. Returns no inventory.
+      operationId: getHealthz
+      security: []
+      responses:
+        '200':
+          description: Serving with SQLite open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Healthz'
+        '503':
+          description: Not serving (SQLite not open)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Healthz'
+  /v1/stats:
+    get:
+      tags: [meta]
+      summary: Counters for the UI header
+      operationId: getStats
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Named bearer token (`hourchd`, each operator, each user machine). Never
+        held by worker hosts. A token has a role. `full` (hourchd, operators)
+        may call every operation. `agent` (user tokens named `<user>@<machine>`)
+        may call every `GET` and `PUT`/`POST`/`DELETE` under `/v1/claims` (including `POST /v1/claims/{id}/power`); it
+        gets 403 `forbidden` on `PUT`/`DELETE /v1/demands*`,
+        `PUT`/`DELETE /v1/workers*`, `PUT /v1/hosts/{hostname}/tags` and
+        `PUT /v1/hosts/{hostname}/exclude`.
+  parameters:
+    DemandId:
+      name: id
+      in: path
+      required: true
+      description: '`hourchd:<job id>`, or free-form for `manual`.'
+      schema:
+        $ref: '#/components/schemas/DemandId'
+    WorkerId:
+      name: worker_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/WorkerId'
+    ClaimId:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/ClaimId'
+    Hostname:
+      name: hostname
+      in: path
+      required: true
+      description: powermaster hostname, as listed by `GET /v1/hosts`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 253
+    IncludeExpired:
+      name: include_expired
+      in: query
+      required: false
+      description: Include rows whose lease has expired but which are not yet swept.
+      schema:
+        type: boolean
+        default: false
+  responses:
+    BadRequest:
+      description: '`bad_request`: malformed body, unknown field, id mismatch, pattern or bound violation.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: '`unauthorized`: missing or wrong bearer token (identical body for both).'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: '`forbidden`: the claim belongs to another token name, or the token''s role may not call this operation.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ClaimExpired:
+      description: '`claim_expired`: the claim lapsed (hard cap or lease); release and claim again. Or `claim_failed`: the claim failed and is final; `message` has the detail; release and claim again.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: '`not_found`: unknown demand or claim, or a host powermaster does not know.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      description: Body of every 4xx and 5xx response.
+      required: [error, message]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+      example:
+        error: capacity
+        message: 500 demands open (limits.max_demands)
+    ErrorCode:
+      type: string
+      enum: [unauthorized, bad_request, forbidden, not_found, conflict, claim_expired, claim_failed, capacity, claim_not_ready, action_not_allowed, host_shared, worker_busy, host_locked, command_in_flight, powermaster_unreachable]
+    DemandId:
+      type: string
+      pattern: '^[A-Za-z0-9_.:-]{1,160}$'
+    WorkerId:
+      type: string
+      pattern: '^[A-Za-z0-9_.-]{1,128}$'
+    ClaimId:
+      type: string
+      pattern: '^[A-Za-z0-9_.:-]{1,160}$'
+    Tag:
+      type: string
+      pattern: '^[A-Za-z0-9_.-]{1,64}$'
+    Tags:
+      type: array
+      description: Up to `limits.max_tags` (32) tags. Zero tags means any worker.
+      maxItems: 32
+      items:
+        $ref: '#/components/schemas/Tag'
+    DemandSource:
+      type: string
+      enum: [hourchd, manual]
+    DemandPut:
+      type: object
+      additionalProperties: false
+      required: [tags, source]
+      properties:
+        id:
+          allOf:
+            - $ref: '#/components/schemas/DemandId'
+          description: Optional; must equal the path id.
+        tags:
+          $ref: '#/components/schemas/Tags'
+        lease_seconds:
+          type: integer
+          minimum: 30
+          maximum: 3600
+          description: |
+            Between `demand_lease_min` and `demand_lease_max` (defaults 30..3600).
+            Omitted on create: `demand_lease_default`. Omitted on refresh: keeps the stored value.
+        source:
+          type: string
+          enum: [hourchd, manual]
+        external_ref:
+          type: string
+          maxLength: 512
+          description: Free label; never dereferenced.
+      example:
+        id: hourchd:01JBF6Q9W2X7
+        tags: [kernel]
+        lease_seconds: 3600
+        source: hourchd
+        external_ref: run 01JBF6P job build
+    Demand:
+      type: object
+      required: [id, tags, lease_seconds, source, external_ref, lease_until, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/DemandId'
+        tags:
+          $ref: '#/components/schemas/Tags'
+        lease_seconds:
+          type: integer
+        source:
+          $ref: '#/components/schemas/DemandSource'
+        external_ref:
+          type: string
+        lease_until:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+          description: Kept across refreshes.
+        updated_at:
+          type: string
+          format: date-time
+        covered_by:
+          type: string
+          nullable: true
+          pattern: '^(worker|host):.+$'
+          description: '`worker:<worker_id>` or `host:<hostname>` from the last reconcile pass; null if uncovered.'
+    JobStatus:
+      type: string
+      enum: [idle, busy, error, maintenance]
+    WorkerPut:
+      type: object
+      additionalProperties: false
+      required: [hostname, tags, job_status]
+      properties:
+        worker_id:
+          allOf:
+            - $ref: '#/components/schemas/WorkerId'
+          description: Optional; must equal the path worker_id.
+        hostname:
+          type: string
+          minLength: 1
+          maxLength: 253
+          description: Must equal a powermaster hostname exactly to attach to that host.
+        tags:
+          $ref: '#/components/schemas/Tags'
+        job_status:
+          $ref: '#/components/schemas/JobStatus'
+        demand_id:
+          type: string
+          pattern: '^([A-Za-z0-9_.:-]{1,160})?$'
+          description: The demand a `busy` or `maintenance` worker claimed. Empty covers nothing.
+        lease_seconds:
+          type: integer
+          minimum: 15
+          maximum: 300
+          description: Between `worker_lease_min` and `worker_lease_max` (defaults 15..300). Omitted means `worker_lease_default` (90s).
+      example:
+        worker_id: node01
+        hostname: node01.lab.example
+        tags: [kernel]
+        job_status: busy
+        demand_id: hourchd:01JBF6Q9W2X7
+        lease_seconds: 90
+    Worker:
+      type: object
+      required: [worker_id, hostname, tags, job_status, demand_id, lease_seconds, lease_until, last_busy_at, updated_at]
+      properties:
+        worker_id:
+          $ref: '#/components/schemas/WorkerId'
+        hostname:
+          type: string
+        tags:
+          $ref: '#/components/schemas/Tags'
+        job_status:
+          $ref: '#/components/schemas/JobStatus'
+        demand_id:
+          type: string
+        lease_seconds:
+          type: integer
+        lease_until:
+          type: string
+          format: date-time
+        last_busy_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set on busy/maintenance, cleared on idle. Drives the busy hold.
+        updated_at:
+          type: string
+          format: date-time
+    HostState:
+      type: string
+      description: |
+        Power state as reported by powermaster (read-only here).
+        `soft_off`: chassis off, PDU outlets on, BMC answering (ACPI S5).
+        `cold_off`: the host's PDU outlets are cut (ACPI G3), the BMC is dead too.
+        Powerwarden treats both as off.
+      enum: [unknown, soft_off, cold_off, powering_on, on, powering_off, rebooting]
+    HostView:
+      type: object
+      description: |
+        The policy view joined with the powermaster view. No hardware fields
+        (no IP, credential, SSH key or PDU address).
+      required: [hostname, tags, name_tags, state, state_since, locked, exclude, idle_since, cold_off_due_at, cooldown_until, boot_grace_until, busy_held_until, paired_demand, workers, claims, jobs_blocked]
+      properties:
+        hostname:
+          type: string
+        tags:
+          type: array
+          description: |
+            Capability tags: what this host can run when powered on (e.g.
+            `kernel`). Owned by powerwarden's database, seeded from
+            `host_tags` in config.yaml. Empty means never powered on for demand.
+          items:
+            type: string
+        name_tags:
+          type: array
+          description: |
+            Read-only. The implicit name tags in effect for this host: its full
+            hostname and its short name (the part before the first dot). Matching
+            is exact and case-sensitive. The short name is omitted when another
+            host has the same short name (or it equals another host's full name).
+            Claims name a host by one of these. They never make a host eligible
+            for a demand: that needs non-empty `tags`. Setting an explicit tag
+            equal to any known host's full or short name is rejected (400).
+          items:
+            type: string
+        state:
+          $ref: '#/components/schemas/HostState'
+        state_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: From powermaster. When the host entered its current state; null from an old powermaster.
+        cold_off_due_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            `state_since + cold_off_after` for a `soft_off` host that may be power-cut;
+            null otherwise (other state, locked, excluded, active command, bound claim,
+            wanted by a demand, `cold_off_after: 0`, or no `state_since`).
+        locked:
+          type: boolean
+          description: From powermaster. Locked hosts are never auto-managed.
+        exclude:
+          type: boolean
+          description: powerwarden policy flag. Excluded hosts are never auto-managed.
+        idle_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: Start of the current idle dwell.
+        cooldown_until:
+          type: string
+          format: date-time
+          nullable: true
+          description: '`power_failed_at + boot_cooldown`; null when not cooling down.'
+        boot_grace_until:
+          type: string
+          format: date-time
+          nullable: true
+        busy_held_until:
+          type: string
+          format: date-time
+          nullable: true
+        paired_demand:
+          type: string
+          nullable: true
+          description: Demand id this host covers in the last pass.
+        workers:
+          type: array
+          description: Ids of the worker rows whose hostname is this host.
+          items:
+            $ref: '#/components/schemas/WorkerId'
+        claims:
+          type: array
+          description: Live claims bound to this host, oldest first.
+          items:
+            $ref: '#/components/schemas/HostClaim'
+        jobs_blocked:
+          type: boolean
+          description: |
+            True while a live `reserve` or `dedicated` claim is bound to this host.
+            Powerwarden does not boot such a host for an hourchd demand. Nothing
+            outside powerwarden reads this yet.
+    ClaimMode:
+      type: string
+      enum: [hold, reserve, dedicated]
+    ClaimState:
+      type: string
+      description: |
+        `pending`: waiting for a host to free; `ready`: bound to `hostname`;
+        `failed`: final (see `detail`): the claim holds nothing (no host, no
+        occupancy, not counted toward `limits.max_claims`), `host_state` is
+        null, `hostname` stays as a record of the host that failed it, and renew,
+        extend and power get 410 `claim_failed`. A bound claim never moves. For
+        `dedicated`, `ready` does not imply the host is on: read `host_state`.
+      enum: [pending, ready, failed]
+    ClaimSession:
+      type: string
+      pattern: '^[A-Za-z0-9_.:-]{1,64}$'
+    HostClaim:
+      type: object
+      description: A claim as shown on the host it is bound to.
+      required: [id, owner, session, purpose, mode, detached, state, lease_until, expires_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ClaimId'
+        owner:
+          type: string
+        session:
+          type: string
+        purpose:
+          type: string
+        mode:
+          $ref: '#/components/schemas/ClaimMode'
+        detached:
+          type: boolean
+        state:
+          $ref: '#/components/schemas/ClaimState'
+        lease_until:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+    ClaimPut:
+      type: object
+      additionalProperties: false
+      required: [tags, purpose]
+      properties:
+        tags:
+          type: array
+          minItems: 1
+          maxItems: 32
+          description: |
+            At least one tag. A host is a candidate when its explicit tags plus
+            name tags cover all of them. To name a host, use its name tag.
+          items:
+            $ref: '#/components/schemas/Tag'
+        purpose:
+          type: string
+          minLength: 1
+          maxLength: 256
+        session:
+          $ref: '#/components/schemas/ClaimSession'
+        mode:
+          allOf:
+            - $ref: '#/components/schemas/ClaimMode'
+          description: Omitted means `hold`. Fixed for the claim's life.
+        max_seconds:
+          type: integer
+          minimum: 1
+          description: Hard cap on create, clamped to `claim_cap_min..claim_cap_max` (15m..72h). Omitted means `claim_cap_default` (8h). Ignored on renew.
+        lease_seconds:
+          type: integer
+          minimum: 1
+          description: Clamped to `claim_lease_min..claim_lease_max` (60s..1h). Omitted means the default on create, the stored value on renew. 400 with `detached`.
+        detached:
+          type: boolean
+          description: No liveness lease. Omitted means false.
+      example:
+        tags: [node01]
+        purpose: debug the swap hints regression
+        session: 3f9a1c
+        mode: dedicated
+        max_seconds: 14400
+        lease_seconds: 900
+    ClaimExtend:
+      type: object
+      additionalProperties: false
+      required: [max_seconds]
+      properties:
+        max_seconds:
+          type: integer
+          minimum: 1
+          description: '`expires_at` becomes now plus this, clamped to `claim_cap_min..claim_cap_max`.'
+    ClaimPower:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [powerup, powerdown, powercut, reboot]
+    Command:
+      type: object
+      description: powermaster's command object, passed through unchanged.
+      required: [id, hostname, action, state, force, escalated, requested_by, reason, attempt, created_at, started_at, deadline, finished_at, error]
+      properties:
+        id:
+          type: integer
+          format: int64
+        hostname:
+          type: string
+        action:
+          type: string
+          description: "One of powerup, powerdown, reboot, powercut (plain string so generated constants do not collide with claim states)."
+        state:
+          type: string
+          description: "One of queued, running, succeeded, failed."
+        force:
+          type: boolean
+        escalated:
+          type: boolean
+        requested_by:
+          type: string
+        reason:
+          type: string
+        attempt:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        deadline:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          type: string
+    Claim:
+      type: object
+      required: [id, owner, session, purpose, mode, detached, tags, hostname, host_state, state, detail, version, lease_seconds, lease_until, expires_at, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ClaimId'
+        owner:
+          type: string
+          description: The creating token's name; never taken from the body.
+        session:
+          type: string
+          description: From the creating PUT; empty if none was sent.
+        purpose:
+          type: string
+        mode:
+          $ref: '#/components/schemas/ClaimMode'
+        detached:
+          type: boolean
+        tags:
+          $ref: '#/components/schemas/Tags'
+        hostname:
+          type: string
+          nullable: true
+          description: The bound host; null until bound.
+        host_state:
+          allOf:
+            - $ref: '#/components/schemas/HostState'
+          nullable: true
+          description: The bound host's power state; null until bound. For `dedicated`, `ready` does not imply the host is on.
+        state:
+          $ref: '#/components/schemas/ClaimState'
+        detail:
+          type: string
+          description: '`no_host`, `waiting for <hosts>`, or per-host reasons (`locked`, `excluded`); empty when ready.'
+        version:
+          type: integer
+          format: int64
+          description: Starts at 1; increases whenever `state`, `detail`, `host_state` or `hostname` changes. Lease renewals and extends do not change it.
+        lease_seconds:
+          type: integer
+          nullable: true
+          description: Null when detached.
+        lease_until:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null when detached.
+        expires_at:
+          type: string
+          format: date-time
+          description: The hard cap. Moved only by extend.
+        created_at:
+          type: string
+          format: date-time
+          description: Kept across renewals.
+        updated_at:
+          type: string
+          format: date-time
+    HostTagsPut:
+      type: object
+      additionalProperties: false
+      required: [tags]
+      properties:
+        tags:
+          $ref: '#/components/schemas/Tags'
+    ExcludePut:
+      type: object
+      additionalProperties: false
+      required: [exclude]
+      properties:
+        exclude:
+          type: boolean
+    DecisionAction:
+      type: string
+      enum: [powerup_requested, powerdown_requested, powercut_requested, request_failed, no_candidate, boot_grace_expired, cooldown_started, claim_power_requested, claim_power_over_busy_worker]
+    Decision:
+      type: object
+      required: [ts, action, hostname, demand_id, command_id, detail]
+      properties:
+        ts:
+          type: string
+          format: date-time
+        action:
+          $ref: '#/components/schemas/DecisionAction'
+        hostname:
+          type: string
+          nullable: true
+        demand_id:
+          type: string
+          nullable: true
+        command_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: powermaster command id, when a request was made.
+        detail:
+          type: string
+    ChangeOp:
+      type: string
+      description: '`put` for create or update, `delete` for delete, expiry or sweep.'
+      enum: [put, delete]
+    DemandEvent:
+      type: object
+      required: [seq, type, op, id, demand]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [demand]
+        op:
+          $ref: '#/components/schemas/ChangeOp'
+        id:
+          $ref: '#/components/schemas/DemandId'
+        demand:
+          allOf:
+            - $ref: '#/components/schemas/Demand'
+          nullable: true
+          description: The demand after the change; null when `op` is `delete`.
+    WorkerEvent:
+      type: object
+      required: [seq, type, op, worker_id, worker]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [worker]
+        op:
+          $ref: '#/components/schemas/ChangeOp'
+        worker_id:
+          $ref: '#/components/schemas/WorkerId'
+        worker:
+          allOf:
+            - $ref: '#/components/schemas/Worker'
+          nullable: true
+          description: The worker after the change; null when `op` is `delete`.
+    ClaimEvent:
+      type: object
+      required: [seq, type, op, id, claim]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [claim]
+        op:
+          $ref: '#/components/schemas/ChangeOp'
+        id:
+          $ref: '#/components/schemas/ClaimId'
+        claim:
+          allOf:
+            - $ref: '#/components/schemas/Claim'
+          nullable: true
+          description: The claim after the change; null when `op` is `delete` (release, lapse or sweep).
+    HostEvent:
+      type: object
+      required: [seq, type, host]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [host]
+        host:
+          $ref: '#/components/schemas/HostView'
+    DecisionEvent:
+      type: object
+      required: [seq, type, decision]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [decision]
+        decision:
+          $ref: '#/components/schemas/Decision'
+    ResyncEvent:
+      type: object
+      description: The requested `Last-Event-ID` is no longer in the ring; re-read the list routes.
+      required: [seq, type]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [resync]
+    Event:
+      description: One `data` payload on `GET /v1/events`, discriminated by `type` (equal to the SSE `event` name).
+      oneOf:
+        - $ref: '#/components/schemas/DemandEvent'
+        - $ref: '#/components/schemas/WorkerEvent'
+        - $ref: '#/components/schemas/ClaimEvent'
+        - $ref: '#/components/schemas/HostEvent'
+        - $ref: '#/components/schemas/DecisionEvent'
+        - $ref: '#/components/schemas/ResyncEvent'
+      discriminator:
+        propertyName: type
+        mapping:
+          demand: '#/components/schemas/DemandEvent'
+          worker: '#/components/schemas/WorkerEvent'
+          claim: '#/components/schemas/ClaimEvent'
+          host: '#/components/schemas/HostEvent'
+          decision: '#/components/schemas/DecisionEvent'
+          resync: '#/components/schemas/ResyncEvent'
+    Healthz:
+      type: object
+      description: No inventory.
+      required: [status, powermaster]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        powermaster:
+          type: string
+          enum: [connected, unreachable]
+    PowerRequestSummary:
+      type: object
+      required: [at, hostname, action, command_id]
+      properties:
+        at:
+          type: string
+          format: date-time
+        hostname:
+          type: string
+        action:
+          type: string
+          enum: [powerup, powerdown]
+        command_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: powermaster command id; null if the request failed.
+    Stats:
+      type: object
+      required: [last_reconcile_at, demands_open, demands_covered, demands_uncovered, workers_fresh, hosts_by_policy, last_power_request]
+      properties:
+        last_reconcile_at:
+          type: string
+          format: date-time
+          nullable: true
+        demands_open:
+          type: integer
+        demands_covered:
+          type: integer
+        demands_uncovered:
+          type: integer
+        workers_fresh:
+          type: integer
+        hosts_by_policy:
+          type: object
+          description: Count of hosts per policy status (e.g. `busy_held`, `idle_dwell`, `booting`, `boot_grace`, `cooldown`, `excluded`, `locked`).
+          additionalProperties:
+            type: integer
+        last_power_request:
+          allOf:
+            - $ref: '#/components/schemas/PowerRequestSummary'
+          nullable: true

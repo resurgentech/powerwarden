@@ -1,0 +1,38 @@
+{{define "content"}}
+<h1>Hosts</h1>
+<p class="muted">Power state is read-only from powermaster. Manual power stays in <code>powermaster monitor</code>.</p>
+<table>
+<thead><tr><th>Host</th><th>State</th><th>Tags</th><th>Locked</th><th>Claims</th><th>Policy</th><th>Paired demand</th><th>Workers</th><th>Exclude</th></tr></thead>
+<tbody>
+{{range .Hosts}}
+<tr>
+  <td>{{.Hostname}}</td>
+  <td><span class="state {{.State}}">{{.State}}</span></td>
+  <td>
+    <form method="post" action="/ui/hosts/{{pathescape .Hostname}}/tags">
+      <input name="tags" value="{{join .Tags ", "}}" size="16" placeholder="none"><button>Set</button>
+    </form>
+    {{if .NameTags}}<div class="muted">name tags: {{join .NameTags ", "}}</div>{{end}}
+    {{range .NameNotes}}<div class="error">{{.}}</div>{{end}}
+  </td>
+  <td>{{if .Locked}}locked{{end}}</td>
+  <td>
+    {{if .JobsBlocked}}<div class="bad">jobs blocked</div>{{end}}
+    {{range .Claims}}<div>{{.Id}} · {{.Owner}}{{with .Session}} · {{.}}{{end}} · {{.Purpose}} · {{.Mode}}{{if .Detached}} · detached{{end}}</div>{{end}}
+  </td>
+  <td>{{range .Status}}<div>{{.}}</div>{{end}}</td>
+  <td>{{deref .PairedDemand}}</td>
+  <td>{{join .Workers ", "}}</td>
+  <td>
+    <form method="post" action="/ui/hosts/{{pathescape .Hostname}}/exclude">
+      {{if .Exclude}}<input type="hidden" name="exclude" value="false"><button>Excluded · include</button>
+      {{else}}<input type="hidden" name="exclude" value="true"><button>Exclude</button>{{end}}
+    </form>
+  </td>
+</tr>
+{{else}}
+<tr><td colspan="9" class="muted">No hosts from powermaster yet.</td></tr>
+{{end}}
+</tbody>
+</table>
+{{end}}

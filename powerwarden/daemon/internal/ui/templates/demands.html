@@ -1,0 +1,31 @@
+{{define "content"}}
+<h1>Demands</h1>
+<table>
+<thead><tr><th>Id</th><th>Tags</th><th>Source</th><th>Age</th><th>Lease left</th><th>Covered by</th><th></th></tr></thead>
+<tbody>
+{{range .Demands}}
+<tr {{if .NoCandidate}}class="nocand" title="uncovered and no candidate host"{{end}}>
+  <td>{{.Id}}</td>
+  <td>{{join .Tags ", "}}</td>
+  <td>{{.Source}}</td>
+  <td>{{.Age}}</td>
+  <td>{{.LeaseLeft}}</td>
+  <td>{{with .CoveredBy}}{{.}}{{else}}<b class="bad">uncovered</b>{{end}}</td>
+  <td>{{if eq (printf "%s" .Source) "manual"}}
+    <form method="post" action="/ui/demands/{{pathescape .Id}}/delete"><button>Delete</button></form>
+  {{end}}</td>
+</tr>
+{{else}}
+<tr><td colspan="7" class="muted">No open demands.</td></tr>
+{{end}}
+</tbody>
+</table>
+<h2>Manual demand</h2>
+<p class="muted">Holds a tag class up without a job.</p>
+<form method="post" action="/ui/demands" class="row">
+  <label>Id <input name="id" required pattern="[A-Za-z0-9_.:\-]{1,160}" placeholder="manual:kernel-hold"></label>
+  <label>Tags <input name="tags" placeholder="kernel"></label>
+  <label>Lease seconds <input name="lease_seconds" inputmode="numeric" placeholder="default"></label>
+  <button>Create</button>
+</form>
+{{end}}

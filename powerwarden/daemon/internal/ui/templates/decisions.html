@@ -1,0 +1,21 @@
+{{define "content"}}
+<h1>Decisions</h1>
+<p class="muted">Why each host was powered up or down, or why nothing happened. Newest first.</p>
+<table>
+<thead><tr><th>Time</th><th>Action</th><th>Host</th><th>Demand</th><th>Command</th><th>Detail</th></tr></thead>
+<tbody>
+{{range .Decisions}}
+<tr>
+  <td>{{ts .Ts}}</td>
+  <td><span class="action {{.Action}}">{{.Action}}</span></td>
+  <td>{{deref .Hostname}}</td>
+  <td>{{deref .DemandId}}</td>
+  <td>{{with .CommandId}}{{.}}{{end}}</td>
+  <td>{{.Detail}}</td>
+</tr>
+{{else}}
+<tr><td colspan="6" class="muted">No decisions yet.</td></tr>
+{{end}}
+</tbody>
+</table>
+{{end}}

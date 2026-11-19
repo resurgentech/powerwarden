@@ -1,0 +1,27 @@
+# pwrwrdn leaf (powerwarden agent CLI + MCP server). Native justfile.
+
+exename := "pwrwrdn"
+
+# List available recipes
+default:
+  @just --list
+
+# Remove built binaries
+clean:
+  rm -f cmd/{{exename}}/{{exename}}
+
+# Run unit tests (httptest fakes and the in-memory MCP transport; no network)
+test *args:
+  go test {{args}} ./...
+
+# Vet all packages
+vet:
+  go vet ./...
+
+# Build the pwrwrdn binary
+build:
+  go build -o cmd/{{exename}}/{{exename}} ./cmd/{{exename}}
+
+# Install pwrwrdn to the user's Go bin
+install:
+  go install ./cmd/{{exename}}

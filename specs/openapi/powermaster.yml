@@ -1,0 +1,617 @@
+openapi: 3.0.3
+info:
+  title: powermaster API
+  description: |
+    Lab host power control (see docs/DESIGN-powermaster.md). powermaster owns
+    host inventory, hardware polling, the host state machine and the power
+    sequences. It accepts three actions per host: powerup, powerdown and
+    reboot, records every request as a durable command, and pushes host and
+    command transitions over server-sent events.
+
+    Conventions:
+    - Request and response bodies are `application/json`.
+    - Unknown JSON fields in a request body are rejected with 400 `bad_request`.
+    - Every route except `GET /v1/healthz` requires `Authorization: Bearer <token>`.
+      The 401 body is identical for a missing and a wrong token.
+    - Every 4xx and 5xx response carries the `Error` body.
+    - Host bodies (JSON and events) never contain IP addresses, IPMI/BMC
+      credentials, SSH keys, PDU addresses or tokens.
+  version: 0.1.0
+servers:
+  - url: http://localhost:8092
+    description: local default; use your deployment's URL
+security:
+  - bearerAuth: []
+tags:
+  - name: hosts
+  - name: commands
+  - name: events
+  - name: meta
+paths:
+  /v1/hosts:
+    get:
+      tags: [hosts]
+      summary: List hosts in inventory with their power state
+      description: |
+        Every host currently in inventory, in inventory order. Hosts removed
+        from inventory are hidden. The list omits `budgets`. This is the truth
+        after an event-stream reconnect or a `resync` event.
+      operationId: listHosts
+      responses:
+        '200':
+          description: Hosts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Host'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/hosts/{hostname}:
+    parameters:
+      - $ref: '#/components/parameters/Hostname'
+    get:
+      tags: [hosts]
+      summary: Get one host, including its resolved budgets
+      operationId: getHost
+      responses:
+        '200':
+          description: Host
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/hosts/{hostname}/power:
+    parameters:
+      - $ref: '#/components/parameters/Hostname'
+    post:
+      tags: [hosts]
+      summary: Request a power action for a host
+      description: |
+        Enqueues a `powerup`, `powerdown`, `powercut` or `reboot` command.
+
+        | Situation | Status |
+        |---|---|
+        | Command queued, or the same action already `queued`/`running` (returns that row) | 202 |
+        | Host already in the requested steady state (`on` for powerup, either off state, `soft_off` or `cold_off`, for powerdown, `cold_off` for powercut); a `succeeded` row is stored | 200 |
+        | Unknown host | 404 `not_found` |
+        | Locked and no `force=true` | 409 `host_locked` |
+        | A different action `queued` or `running` | 409 `command_in_flight` |
+
+        Reboot has no "already there" state. `requested_by` on the stored
+        command is the name of the caller's bearer token.
+      operationId: requestPower
+      parameters:
+        - name: force
+          in: query
+          required: false
+          description: Act on a host that is `locked` in inventory.
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PowerRequest'
+      responses:
+        '200':
+          description: Host already in the requested steady state; a `succeeded` command was stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Command'
+        '202':
+          description: Command queued, or the existing in-flight command for the same action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Command'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: '`host_locked` (locked and no `force=true`) or `command_in_flight` (a different action is queued or running).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                host_locked:
+                  value:
+                    error: host_locked
+                    message: host node01.lab.example is locked; retry with force=true
+                command_in_flight:
+                  value:
+                    error: command_in_flight
+                    message: powerup command 17 is running for node01.lab.example
+  /v1/commands:
+    get:
+      tags: [commands]
+      summary: List commands, newest first (at most 200)
+      operationId: listCommands
+      parameters:
+        - name: hostname
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/CommandState'
+        - name: since
+          in: query
+          required: false
+          description: Only commands created at or after this time.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Commands, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 200
+                items:
+                  $ref: '#/components/schemas/Command'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/commands/{id}:
+    get:
+      tags: [commands]
+      summary: Get one command
+      operationId: getCommand
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Command
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Command'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/events:
+    get:
+      tags: [events]
+      summary: Server-sent event stream of host and command transitions
+      description: |
+        `text/event-stream`. Each event is one SSE message:
+
+        ```
+        id: <seq>
+        event: host | command | resync
+        data: <one JSON object: HostEvent | CommandEvent | ResyncEvent>
+        ```
+
+        `seq` is monotonically increasing and is also the SSE `id`.
+
+        - `host` (`HostEvent`): on every state write and every poll status change.
+        - `command` (`CommandEvent`): on enqueue, claim, escalation and terminal transition.
+        - `resync` (`ResyncEvent`): sent on reconnect when `Last-Event-ID` is
+          older than the in-memory ring (`events.ring_size`, default 1000); the
+          client must re-read `GET /v1/hosts`.
+
+        A comment heartbeat (`: heartbeat`) is sent every `events.heartbeat`
+        (default 15s). Events are delivered within 1s of the commit that
+        caused them. Event payloads never contain secrets.
+      operationId: streamEvents
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: The `seq` of the last event the client saw; resume after it.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE stream; each `data` line is a JSON `Event` (see components.schemas.Event).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/healthz:
+    get:
+      tags: [meta]
+      summary: Liveness and readiness
+      description: |
+        No authentication. 200 when serving with SQLite open, else 503. Does
+        not check IPMI. Returns no inventory.
+      operationId: getHealthz
+      security: []
+      responses:
+        '200':
+          description: Serving with SQLite open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Healthz'
+        '503':
+          description: Not serving (SQLite not open)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Healthz'
+  /v1/stats:
+    get:
+      tags: [meta]
+      summary: Counters for the TUI footer
+      operationId: getStats
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Named bearer token (one per caller, e.g. `powerwarden`, each operator). The token name becomes `requested_by`.
+  parameters:
+    Hostname:
+      name: hostname
+      in: path
+      required: true
+      description: Inventory hostname, as listed by `GET /v1/hosts`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 253
+  responses:
+    BadRequest:
+      description: '`bad_request`: malformed body, unknown field, or invalid parameter.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: '`unauthorized`: missing or wrong bearer token (identical body for both).'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: '`not_found`: unknown host or command.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      description: Body of every 4xx and 5xx response.
+      required: [error, message]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+      example:
+        error: host_locked
+        message: host node01.lab.example is locked; retry with force=true
+    ErrorCode:
+      type: string
+      enum: [unauthorized, bad_request, not_found, host_locked, command_in_flight]
+    HostState:
+      type: string
+      description: |
+        `unknown`: not yet seeded from PDU and IPMI polls.
+        `soft_off`: chassis off, PDU outlets on, BMC answering (ACPI S5).
+        `cold_off`: PDU outlets cut, BMC dead (ACPI G3).
+      enum: [unknown, soft_off, cold_off, powering_on, on, powering_off, rebooting]
+    PowerAction:
+      type: string
+      enum: [powerup, powerdown, reboot, powercut]
+    CommandState:
+      type: string
+      enum: [queued, running, succeeded, failed]
+    HostStatus:
+      type: object
+      description: Latest in-memory poll results. Every member is null before the first poll.
+      required: [pdu, ipmi, ping, ssh, observed_at]
+      properties:
+        pdu:
+          type: boolean
+          nullable: true
+        ipmi:
+          type: boolean
+          nullable: true
+          description: Null when the BMC does not answer the last poll.
+        ping:
+          type: boolean
+          nullable: true
+        ssh:
+          type: boolean
+          nullable: true
+        observed_at:
+          type: string
+          format: date-time
+          nullable: true
+    ActiveCommand:
+      type: object
+      description: Summary of the host's queued or running command.
+      required: [id, action, state, deadline]
+      properties:
+        id:
+          type: integer
+          format: int64
+        action:
+          $ref: '#/components/schemas/PowerAction'
+        state:
+          $ref: '#/components/schemas/CommandState'
+        deadline:
+          type: string
+          format: date-time
+    Budgets:
+      type: object
+      description: Resolved per-host budgets (sum of stage times; the recorded command deadline adds `deadline_slack` on top), Go duration strings.
+      required: [powerup, powerdown, reboot, powercut]
+      properties:
+        powerup:
+          type: string
+          example: 930s
+        powerdown:
+          type: string
+          example: 760s
+        reboot:
+          type: string
+          example: 780s
+        powercut:
+          type: string
+          example: 760s
+    Host:
+      type: object
+      description: |
+        A host's power view. MUST NOT contain `ip`, IPMI username or password,
+        SSH keys, PDU addresses, or tokens.
+      required: [hostname, locked, class, state, state_since, status, last_error, power_failed_at, active_command]
+      properties:
+        hostname:
+          type: string
+          example: node01.lab.example
+        locked:
+          type: boolean
+          description: From inventory. Actions need `force=true`.
+        class:
+          type: string
+          description: Host class from config.yaml; empty when the host is in no class.
+        state:
+          $ref: '#/components/schemas/HostState'
+        state_since:
+          type: string
+          format: date-time
+          description: When `state` last changed.
+        status:
+          $ref: '#/components/schemas/HostStatus'
+        last_error:
+          type: string
+          description: Error of the last failed sequence; empty if none.
+        power_failed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Time of the last failed powerup or reboot.
+        active_command:
+          allOf:
+            - $ref: '#/components/schemas/ActiveCommand'
+          nullable: true
+      example:
+        hostname: node01.lab.example
+        tags: [kernel]
+        locked: false
+        class: node
+        state: powering_on
+        state_since: '2026-10-07T19:00:00Z'
+        status: {pdu: true, ipmi: true, ping: false, ssh: false, observed_at: '2026-10-07T19:00:05Z'}
+        last_error: ''
+        power_failed_at: null
+        active_command: {id: 17, action: powerup, state: running, deadline: '2026-10-07T19:16:00Z'}
+    HostDetail:
+      description: A host plus its resolved budgets (`GET /v1/hosts/{hostname}` only).
+      allOf:
+        - $ref: '#/components/schemas/Host'
+        - type: object
+          required: [budgets]
+          properties:
+            budgets:
+              $ref: '#/components/schemas/Budgets'
+    PowerRequest:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action:
+          $ref: '#/components/schemas/PowerAction'
+        reason:
+          type: string
+          maxLength: 256
+          description: Caller text recorded on the command, e.g. a demand id.
+      example:
+        action: reboot
+        reason: 'manual: hung after kernel install'
+    Command:
+      type: object
+      description: A power command (the `commands` table columns as JSON).
+      required: [id, hostname, action, state, force, escalated, requested_by, reason, attempt, created_at, started_at, deadline, finished_at, error]
+      properties:
+        id:
+          type: integer
+          format: int64
+        hostname:
+          type: string
+        action:
+          $ref: '#/components/schemas/PowerAction'
+        state:
+          $ref: '#/components/schemas/CommandState'
+        force:
+          type: boolean
+        escalated:
+          type: boolean
+          description: Reboot fell back to a PDU cycle.
+        requested_by:
+          type: string
+          description: Name of the bearer token that made the request (e.g. `powerwarden`, `alice`).
+        reason:
+          type: string
+        attempt:
+          type: string
+          description: Attempt token that guards the sequence's terminal write.
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        deadline:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          type: string
+          description: Empty unless `failed` (e.g. `interrupted`, `chassis_did_not_power_off`).
+    EventType:
+      type: string
+      enum: [host, command, resync]
+    HostEvent:
+      type: object
+      description: Sent on every host state write and every poll status change. Contains no secrets.
+      required: [seq, type, hostname, state, state_since, status, active_command]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [host]
+        hostname:
+          type: string
+        state:
+          $ref: '#/components/schemas/HostState'
+        state_since:
+          type: string
+          format: date-time
+          description: When `state` last changed.
+        status:
+          $ref: '#/components/schemas/HostStatus'
+        active_command:
+          allOf:
+            - $ref: '#/components/schemas/ActiveCommand'
+          nullable: true
+    CommandEvent:
+      type: object
+      description: Sent on enqueue, claim, escalation and terminal transition.
+      required: [seq, type, command]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [command]
+        command:
+          $ref: '#/components/schemas/Command'
+    ResyncEvent:
+      type: object
+      description: The requested `Last-Event-ID` is no longer in the ring; re-read `GET /v1/hosts`.
+      required: [seq, type]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [resync]
+    Event:
+      description: One `data` payload on `GET /v1/events`, discriminated by `type` (equal to the SSE `event` name).
+      oneOf:
+        - $ref: '#/components/schemas/HostEvent'
+        - $ref: '#/components/schemas/CommandEvent'
+        - $ref: '#/components/schemas/ResyncEvent'
+      discriminator:
+        propertyName: type
+        mapping:
+          host: '#/components/schemas/HostEvent'
+          command: '#/components/schemas/CommandEvent'
+          resync: '#/components/schemas/ResyncEvent'
+    Healthz:
+      type: object
+      description: No inventory.
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+    PowerError:
+      type: object
+      required: [hostname, command_id, error, at]
+      properties:
+        hostname:
+          type: string
+        command_id:
+          type: integer
+          format: int64
+        error:
+          type: string
+        at:
+          type: string
+          format: date-time
+    Stats:
+      type: object
+      required: [hosts_by_state, commands_running, last_power_error, last_command_at, subscribers]
+      properties:
+        hosts_by_state:
+          type: object
+          description: Count of hosts per `HostState`.
+          additionalProperties:
+            type: integer
+        commands_running:
+          type: integer
+        last_power_error:
+          allOf:
+            - $ref: '#/components/schemas/PowerError'
+          nullable: true
+        last_command_at:
+          type: string
+          format: date-time
+          nullable: true
+        subscribers:
+          type: integer
+          description: Number of connected `/v1/events` subscribers.

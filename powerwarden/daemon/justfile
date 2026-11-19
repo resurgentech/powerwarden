@@ -1,0 +1,65 @@
+# powerwarden leaf. Native justfile.
+
+exename := "powerwarden"
+set dotenv-filename := "images.env"
+
+# Image settings (environment or a gitignored images.env at the repo root; see images.env.example).
+# IMAGE_REGISTRY: registry prefix; empty builds a local-only tag.
+# IMAGE_CA_CERT: optional path to an extra CA to trust inside the image.
+registry := trim_end_match(env("IMAGE_REGISTRY", ""), "/")
+ca_cert := env("IMAGE_CA_CERT", "")
+logs_host := env("LOGS_HOST", "")
+logs_dir := env("LOGS_DIR", "")
+image_name := if registry == "" { exename } else { registry + "/" + exename }
+# repository root relative to this leaf (powerwarden/daemon)
+root := justfile_directory() / "../.."
+
+# List available recipes
+default:
+  @just --list
+
+# Remove built binaries
+clean:
+  rm -f cmd/{{exename}}/{{exename}}
+
+# Run unit tests (no docker)
+test *args:
+  go test {{args}} ./...
+
+# Vet all packages
+vet:
+  go vet ./...
+
+# Build the powerwarden binary
+build:
+  go build -o cmd/{{exename}}/{{exename}} ./cmd/{{exename}}
+
+# Build the image from the repository root (stages IMAGE_CA_CERT when set)
+image tag="latest":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  stage=cmd/{{exename}}/extra-ca
+  ca="{{ca_cert}}"
+  if [ -n "$ca" ]; then
+    [ -f "$ca" ] || { echo "IMAGE_CA_CERT=$ca: no such file" >&2; exit 1; }
+    cp "$ca" "$stage/extra-ca.crt"
+    trap 'rm -f "{{justfile_directory()}}/'"$stage"'/extra-ca.crt"' EXIT
+  fi
+  cd "{{root}}"
+  docker build -f powerwarden/daemon/cmd/{{exename}}/Dockerfile -t {{image_name}}:{{tag}} .
+
+# Push the image to IMAGE_REGISTRY (fails when it is empty)
+push tag="latest": _need-registry (image tag)
+  docker push {{image_name}}:{{tag}}
+
+_need-registry:
+  #!/usr/bin/env bash
+  [ -n "{{registry}}" ] || { echo "IMAGE_REGISTRY is empty: set it in the environment or images.env to push" >&2; exit 1; }
+
+# Follow service logs on a host (LOGS_HOST or the argument; compose project in LOGS_DIR/<name>; no defaults)
+logs host=logs_host:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "{{host}}" ] || { echo "no host: pass one (just logs HOST) or set LOGS_HOST" >&2; exit 1; }
+  [ -n "{{logs_dir}}" ] || { echo "LOGS_DIR is not set: set it to the directory holding the compose projects on the host (the recipe uses LOGS_DIR/{{exename}})" >&2; exit 1; }
+  ssh "{{host}}" "cd {{logs_dir}}/{{exename}}; docker compose logs -f"

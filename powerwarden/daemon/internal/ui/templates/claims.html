@@ -1,0 +1,36 @@
+{{define "content"}}
+<h1>Claims</h1>
+<p class="muted">Leases agents hold on one host. The UI has no power buttons; the claimant controls power through the API.</p>
+<table>
+<thead><tr><th>Id</th><th>Owner</th><th>Session</th><th>Purpose</th><th>Mode</th><th>Tags</th><th>Host</th><th>Host state</th><th>State</th><th>Lease left</th><th>Cap left</th><th></th></tr></thead>
+<tbody>
+{{range .Claims}}
+<tr>
+  <td>{{.Id}}</td>
+  <td>{{.Owner}}</td>
+  <td>{{.Session}}</td>
+  <td>{{.Purpose}}</td>
+  <td>{{.Mode}}</td>
+  <td>{{join .Tags ", "}}</td>
+  <td>{{deref .Hostname}}</td>
+  <td>{{with .HostState}}<span class="state {{.}}">{{.}}</span>{{end}}</td>
+  <td>{{.State}}{{if .Detail}}<div class="muted">{{.Detail}}</div>{{end}}</td>
+  <td>{{if .Detached}}detached{{else}}{{.LeaseLeft}}{{end}}</td>
+  <td>{{.CapLeft}}</td>
+  <td><form method="post" action="/ui/claims/{{pathescape .Id}}/delete"><button>Release</button></form></td>
+</tr>
+{{else}}
+<tr><td colspan="12" class="muted">No live claims.</td></tr>
+{{end}}
+</tbody>
+</table>
+<h2>New claim</h2>
+<p class="muted">Made here, a claim is detached: no process holds it, so it lives until its hard cap or a release. Its owner is <code>ui:{{.User}}</code>.</p>
+<form method="post" action="/ui/claims" class="row">
+  <label>Tags <input name="tags" required placeholder="node01"></label>
+  <label>Mode <select name="mode"><option>hold</option><option>reserve</option><option>dedicated</option></select></label>
+  <label>Purpose <input name="purpose" required size="30"></label>
+  <label>Hard cap seconds <input name="max_seconds" inputmode="numeric" placeholder="default"></label>
+  <button>Create</button>
+</form>
+{{end}}

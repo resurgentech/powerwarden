@@ -1,0 +1,9 @@
+# The build context is the repo root (go.work needs its sibling modules).
+# Send only the go.work modules and the specs, not the whole tree.
+*
+!go.work
+!go.work.sum
+!powermaster
+!powerwarden
+!specs
+**/.git
