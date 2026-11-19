@@ -46,3 +46,16 @@ are appended, never edited in; a hook refuses rewrites.
   reads status only under a deadline, so a broken secret check fails at once instead of hanging on `/ui/events`.
   The `powerwarden/daemon/v0.2.0` tag moves to this commit.
 - Commits: the follow-up commit on top of 70d8c94 on branch `phase-a-ui` (this entry ships in it).
+
+## 2026-11-19 — B4 key-request discovery in both daemons
+
+- Spec first: `GET /v1/key-request` (no auth; `200 {"request_url"}` or `404`), schema `KeyRequestDiscovery` and tag
+  `key-request` in both specs (info version 0.2.0); fixtures in `specs/fixtures/keyrequest/`; both api clients
+  regenerated. New optional daemon setting `personal_keys.request_url` (absolute http/https, host, no userinfo, no
+  fragment; no default). Unset: the route is 404 and nothing else changes. powerwarden: `RoleNone` rows for healthz
+  and key-request in `routeRoles`; powermaster: an auth=false row. `check-config` / `check` append
+  ` key_request=on` when set. Examples, READMEs, DESIGN docs.
+- Release: `powermaster/api/v0.2.0`, `powerwarden/api/v0.2.0` on 6020d04; then a follow-up commit moves the daemons'
+  requires and the `go.work` replaces to v0.2.0 with go.sum, and `powerwarden/daemon/v0.3.0`,
+  `powermaster/daemon/v0.2.0` go on it (tags to be created after review).
+- Commits: 6020d04 (code); this log entry ships in the next commit.
