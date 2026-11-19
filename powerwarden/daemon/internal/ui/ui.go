@@ -1,5 +1,6 @@
-// Package ui is powerwarden's operator web UI at /ui: html/template pages,
-// live updates over /ui/events (the same hub as /v1/events), and three
+// Package ui is powerwarden's operator web UI at <ui.path_prefix>/ui (default
+// /ui): html/template pages, live updates over <prefix>/ui/events (the same
+// hub as /v1/events), and three
 // actions (exclude toggle, create and delete manual demands). Everything is
 // behind htpasswd basic auth; POSTs also pass an Origin/Referer check. The UI
 // only calls internal/app; it never talks to powermaster and has no power
@@ -40,12 +41,15 @@ type UI struct {
 	Log   *slog.Logger
 
 	pages map[string]*template.Template
+	// base is ui.path_prefix: "" or "/p". Every UI URL is base + "/ui/...".
+	base string
 }
 
 // New parses the embedded templates.
 func New(a *app.App, users *Htpasswd, log *slog.Logger) (*UI, error) {
-	u := &UI{App: a, Users: users, Log: log, pages: map[string]*template.Template{}}
+	u := &UI{App: a, Users: users, Log: log, pages: map[string]*template.Template{}, base: a.Cfg.UI.PathPrefix}
 	funcs := template.FuncMap{
+		"base":       func() string { return u.base },
 		"ts":         func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05Z") },
 		"mmss":       mmss,
 		"pathescape": url.PathEscape,
@@ -57,12 +61,12 @@ func New(a *app.App, users *Htpasswd, log *slog.Logger) (*UI, error) {
 			return *s
 		},
 	}
-	base, err := template.New("layout.html").Funcs(funcs).ParseFS(assets, "templates/layout.html")
+	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(assets, "templates/layout.html")
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range []string{"hosts", "demands", "workers", "decisions", "claims"} {
-		t, err := template.Must(base.Clone()).ParseFS(assets, "templates/"+p+".html")
+		t, err := template.Must(layout.Clone()).ParseFS(assets, "templates/"+p+".html")
 		if err != nil {
 			return nil, err
 		}
@@ -71,28 +75,35 @@ func New(a *app.App, users *Htpasswd, log *slog.Logger) (*UI, error) {
 	return u, nil
 }
 
-// Register adds the /ui routes to mux.
+// Register adds the <prefix>/ui routes to mux.
 func (u *UI) Register(mux *http.ServeMux) {
 	static, _ := fs.Sub(assets, "static")
+	b := u.base
+	home := b + "/ui/hosts"
 	get := func(pattern string, h http.Handler) { mux.Handle("GET "+pattern, u.auth(h)) }
 	post := func(pattern string, h http.HandlerFunc) { mux.Handle("POST "+pattern, u.auth(u.sameOrigin(h))) }
 	// The bare site root goes to the UI; the redirect itself needs no auth.
-	mux.Handle("GET /{$}", http.RedirectHandler("/ui/hosts", http.StatusSeeOther))
-	get("/ui/{$}", http.RedirectHandler("/ui/hosts", http.StatusSeeOther))
-	get("/ui", http.RedirectHandler("/ui/hosts", http.StatusSeeOther))
-	get("/ui/static/", http.StripPrefix("/ui/static/", http.FileServerFS(static)))
-	get("/ui/events", u.App.Hub)
-	get("/ui/hosts", http.HandlerFunc(u.hosts))
-	get("/ui/demands", http.HandlerFunc(u.demands))
-	get("/ui/workers", http.HandlerFunc(u.workers))
-	get("/ui/decisions", http.HandlerFunc(u.decisions))
-	get("/ui/claims", http.HandlerFunc(u.claims))
-	post("/ui/claims", u.postClaim)
-	post("/ui/claims/{id}/delete", u.postReleaseClaim)
-	post("/ui/hosts/{hostname}/exclude", u.postExclude)
-	post("/ui/hosts/{hostname}/tags", u.postHostTags)
-	post("/ui/demands", u.postDemand)
-	post("/ui/demands/{id}/delete", u.postDeleteDemand)
+	mux.Handle("GET /{$}", http.RedirectHandler(home, http.StatusSeeOther))
+	if b != "" {
+		// A proxy that maps the prefix to this daemon sends <prefix> and <prefix>/ here.
+		mux.Handle("GET "+b+"/{$}", http.RedirectHandler(home, http.StatusSeeOther))
+		mux.Handle("GET "+b, http.RedirectHandler(home, http.StatusSeeOther))
+	}
+	get(b+"/ui/{$}", http.RedirectHandler(home, http.StatusSeeOther))
+	get(b+"/ui", http.RedirectHandler(home, http.StatusSeeOther))
+	get(b+"/ui/static/", http.StripPrefix(b+"/ui/static/", http.FileServerFS(static)))
+	get(b+"/ui/events", u.App.Hub)
+	get(b+"/ui/hosts", http.HandlerFunc(u.hosts))
+	get(b+"/ui/demands", http.HandlerFunc(u.demands))
+	get(b+"/ui/workers", http.HandlerFunc(u.workers))
+	get(b+"/ui/decisions", http.HandlerFunc(u.decisions))
+	get(b+"/ui/claims", http.HandlerFunc(u.claims))
+	post(b+"/ui/claims", u.postClaim)
+	post(b+"/ui/claims/{id}/delete", u.postReleaseClaim)
+	post(b+"/ui/hosts/{hostname}/exclude", u.postExclude)
+	post(b+"/ui/hosts/{hostname}/tags", u.postHostTags)
+	post(b+"/ui/demands", u.postDemand)
+	post(b+"/ui/demands/{id}/delete", u.postDeleteDemand)
 }
 
 // ---- auth and CSRF ----
@@ -292,14 +303,14 @@ func (u *UI) decisions(w http.ResponseWriter, r *http.Request) {
 
 // ---- actions ----
 
-func back(w http.ResponseWriter, r *http.Request, page string, err error, ok string) {
+func (u *UI) back(w http.ResponseWriter, r *http.Request, page string, err error, ok string) {
 	q := url.Values{}
 	if err != nil {
 		q.Set("err", err.Error())
 	} else if ok != "" {
 		q.Set("ok", ok)
 	}
-	http.Redirect(w, r, "/ui/"+page+"?"+q.Encode(), http.StatusSeeOther)
+	http.Redirect(w, r, u.base+"/ui/"+page+"?"+q.Encode(), http.StatusSeeOther)
 }
 
 func (u *UI) postExclude(w http.ResponseWriter, r *http.Request) {
@@ -310,7 +321,7 @@ func (u *UI) postExclude(w http.ResponseWriter, r *http.Request) {
 		err = fmt.Errorf("powermaster does not know host %q", host)
 	}
 	u.Log.Info("ui: exclude", "host", host, "exclude", exclude, "user", user(r), "error", err)
-	back(w, r, "hosts", err, fmt.Sprintf("%s exclude=%v", host, exclude))
+	u.back(w, r, "hosts", err, fmt.Sprintf("%s exclude=%v", host, exclude))
 }
 
 func (u *UI) postHostTags(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +332,7 @@ func (u *UI) postHostTags(w http.ResponseWriter, r *http.Request) {
 		err = fmt.Errorf("powermaster does not know host %q", host)
 	}
 	u.Log.Info("ui: host tags", "host", host, "tags", tags, "user", user(r), "error", err)
-	back(w, r, "hosts", err, fmt.Sprintf("%s tags=%s", host, strings.Join(tags, ",")))
+	u.back(w, r, "hosts", err, fmt.Sprintf("%s tags=%s", host, strings.Join(tags, ",")))
 }
 
 func (u *UI) postDemand(w http.ResponseWriter, r *http.Request) {
@@ -332,14 +343,14 @@ func (u *UI) postDemand(w http.ResponseWriter, r *http.Request) {
 	if v := strings.TrimSpace(r.PostFormValue("lease_seconds")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			back(w, r, "demands", fmt.Errorf("lease_seconds must be a number"), "")
+			u.back(w, r, "demands", fmt.Errorf("lease_seconds must be a number"), "")
 			return
 		}
 		in.LeaseSeconds = &n
 	}
 	_, err := u.App.PutDemand(r.Context(), in)
 	u.Log.Info("ui: manual demand", "id", id, "tags", tags, "user", user(r), "error", err)
-	back(w, r, "demands", err, "manual demand "+id+" stored")
+	u.back(w, r, "demands", err, "manual demand "+id+" stored")
 }
 
 func (u *UI) postDeleteDemand(w http.ResponseWriter, r *http.Request) {
@@ -354,7 +365,7 @@ func (u *UI) postDeleteDemand(w http.ResponseWriter, r *http.Request) {
 		err = u.App.DeleteDemand(r.Context(), id)
 	}
 	u.Log.Info("ui: delete manual demand", "id", id, "user", user(r), "error", err)
-	back(w, r, "demands", err, "manual demand "+id+" deleted")
+	u.back(w, r, "demands", err, "manual demand "+id+" deleted")
 }
 
 type claimRow struct {
@@ -395,7 +406,7 @@ func uiCaller(r *http.Request) app.Caller {
 func (u *UI) postClaim(w http.ResponseWriter, r *http.Request) {
 	var rnd [6]byte
 	if _, err := rand.Read(rnd[:]); err != nil {
-		back(w, r, "claims", err, "")
+		u.back(w, r, "claims", err, "")
 		return
 	}
 	id := "ui-" + hex.EncodeToString(rnd[:])
@@ -405,21 +416,21 @@ func (u *UI) postClaim(w http.ResponseWriter, r *http.Request) {
 	if v := strings.TrimSpace(r.PostFormValue("max_seconds")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			back(w, r, "claims", fmt.Errorf("hard cap must be a number of seconds"), "")
+			u.back(w, r, "claims", fmt.Errorf("hard cap must be a number of seconds"), "")
 			return
 		}
 		in.MaxSeconds = &n
 	}
 	_, err := u.App.PutClaim(r.Context(), uiCaller(r), in)
 	u.Log.Info("ui: claim", "id", id, "tags", tags, "user", user(r), "error", err)
-	back(w, r, "claims", err, "claim "+id+" created")
+	u.back(w, r, "claims", err, "claim "+id+" created")
 }
 
 func (u *UI) postReleaseClaim(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	err := u.App.ReleaseClaim(r.Context(), uiCaller(r), id)
 	u.Log.Info("ui: release claim", "id", id, "user", user(r), "error", err)
-	back(w, r, "claims", err, "claim "+id+" released")
+	u.back(w, r, "claims", err, "claim "+id+" released")
 }
 
 func user(r *http.Request) string {

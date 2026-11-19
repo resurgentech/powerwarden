@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>powerwarden · {{.Page}}</title>
-<link rel="stylesheet" href="/ui/static/app.css">
-<script src="/ui/static/app.js" defer></script>
+<link rel="stylesheet" href="{{base}}/ui/static/app.css">
+<script src="{{base}}/ui/static/app.js" defer></script>
 </head>
-<body>
+<body{{with base}} data-base="{{.}}"{{end}}>
 <nav>
   <strong>powerwarden</strong>
-  <a href="/ui/hosts" {{if eq .Page "hosts"}}class="on"{{end}}>Hosts</a>
-  <a href="/ui/demands" {{if eq .Page "demands"}}class="on"{{end}}>Demands</a>
-  <a href="/ui/claims" {{if eq .Page "claims"}}class="on"{{end}}>Claims</a>
-  <a href="/ui/workers" {{if eq .Page "workers"}}class="on"{{end}}>Workers</a>
-  <a href="/ui/decisions" {{if eq .Page "decisions"}}class="on"{{end}}>Decisions</a>
+  <a href="{{base}}/ui/hosts" {{if eq .Page "hosts"}}class="on"{{end}}>Hosts</a>
+  <a href="{{base}}/ui/demands" {{if eq .Page "demands"}}class="on"{{end}}>Demands</a>
+  <a href="{{base}}/ui/claims" {{if eq .Page "claims"}}class="on"{{end}}>Claims</a>
+  <a href="{{base}}/ui/workers" {{if eq .Page "workers"}}class="on"{{end}}>Workers</a>
+  <a href="{{base}}/ui/decisions" {{if eq .Page "decisions"}}class="on"{{end}}>Decisions</a>
   <span id="stream" class="muted">live: connecting</span>
 </nav>
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}

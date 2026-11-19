@@ -140,3 +140,21 @@ func TestClaimDefaultsAndBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestUIPathPrefix(t *testing.T) {
+	if got := Default().UI.PathPrefix; got != "" {
+		t.Fatalf("default ui.path_prefix = %q, want empty", got)
+	}
+	for _, ok := range []string{"", "/p", "/a/b", "/power-warden_1.x~"} {
+		cfg, err := parseReq("ui:\n  path_prefix: \"" + ok + "\"\n")
+		if err != nil || cfg.UI.PathPrefix != ok {
+			t.Errorf("prefix %q: %v %q", ok, err, cfg.UI.PathPrefix)
+		}
+	}
+	for _, bad := range []string{"p", "/p/", "/", "/a/../b", "/..", "/a//b", "/a b", "/a{b}", "/a?b", "/a#b", "/a%2fb", "/./a", "//p"} {
+		_, err := parseReq("ui:\n  path_prefix: \"" + bad + "\"\n")
+		if err == nil || !strings.Contains(err.Error(), "ui.path_prefix") {
+			t.Errorf("prefix %q accepted or unnamed error: %v", bad, err)
+		}
+	}
+}

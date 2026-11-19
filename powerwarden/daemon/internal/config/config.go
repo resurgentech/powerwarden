@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -83,6 +84,9 @@ type Events struct {
 type UI struct {
 	Enabled      bool   `yaml:"enabled"`
 	HtpasswdFile string `yaml:"htpasswd_file"`
+	// PathPrefix serves the UI under <prefix>/ui for a reverse proxy that
+	// neither strips nor rewrites the prefix. Empty serves at /ui.
+	PathPrefix string `yaml:"path_prefix"`
 }
 
 // Default returns the documented defaults.
@@ -251,6 +255,9 @@ func (c Config) Validate() error {
 	if c.UI.Enabled && c.UI.HtpasswdFile == "" {
 		bad("ui.htpasswd_file is required when ui.enabled")
 	}
+	if err := validPathPrefix(c.UI.PathPrefix); err != nil {
+		bad("ui.path_prefix %q: %v", c.UI.PathPrefix, err)
+	}
 	// Name tags (a host's full and short name) are reserved: no host_tags
 	// value may equal any host_tags key or its short form.
 	reserved := map[string]bool{}
@@ -280,4 +287,30 @@ func sortedKeys(m map[string][]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+var prefixSegment = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
+
+// validPathPrefix accepts "" or one or more "/segment"s, each made of
+// URL-unreserved characters (so it is safe in a ServeMux pattern and needs no
+// escaping), with no trailing "/", no empty segment and no "..".
+func validPathPrefix(p string) error {
+	if p == "" {
+		return nil
+	}
+	if !strings.HasPrefix(p, "/") {
+		return errors.New("must start with /")
+	}
+	if strings.HasSuffix(p, "/") {
+		return errors.New("must not end with /")
+	}
+	if strings.Contains(p, "..") {
+		return errors.New(`must not contain ".."`)
+	}
+	for _, seg := range strings.Split(p[1:], "/") {
+		if seg == "." || !prefixSegment.MatchString(seg) {
+			return errors.New("each segment must be non-empty and use only letters, digits, . _ ~ -")
+		}
+	}
+	return nil
 }

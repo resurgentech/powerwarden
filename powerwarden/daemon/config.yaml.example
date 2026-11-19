@@ -52,6 +52,10 @@ events:
 ui:
   enabled: true
   htpasswd_file: /etc/powerwarden/ui.htpasswd
+  # Serve the UI under <path_prefix>/ui for a reverse proxy that does not strip
+  # the prefix, e.g. "/powerwarden". Empty serves at /ui. Must start with "/",
+  # not end with "/", and use only letters, digits, . _ ~ - in each segment.
+  path_prefix: ""
 
 # Optional seed for host capability tags (what a host can run when powered
 # on). Tags live in powerwarden's database and are edited with

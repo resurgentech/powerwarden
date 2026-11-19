@@ -27,7 +27,9 @@
     if (!timer) timer = setTimeout(refresh, 300);
   }
 
-  var es = new EventSource("/ui/events");
+  // The reverse-proxy path prefix, if any, comes from <body data-base>.
+  var ui = (document.body.getAttribute("data-base") || "") + "/ui";
+  var es = new EventSource(ui + "/events");
   ["demand", "worker", "host", "decision", "claim", "resync"].forEach(function (name) {
     es.addEventListener(name, schedule);
   });

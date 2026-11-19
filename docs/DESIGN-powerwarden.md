@@ -461,6 +461,11 @@ and assets are embedded with `go:embed`. Basic auth comes from an htpasswd file 
 only). UI POSTs must carry an `Origin` (or `Referer`) whose host equals the request `Host`; that is the CSRF guard,
 so a reverse proxy in front must preserve `Host`.
 
+Behind a reverse proxy that gives each service a path prefix and neither strips nor rewrites it, set `ui.path_prefix`
+(for example `/powerwarden`): the UI is then served under `<prefix>/ui/...`, every link, form action, redirect and the
+`EventSource` URL carries the prefix (templates use `{{base}}`; `app.js` reads `<body data-base>`), and the site root,
+`<prefix>` and `<prefix>/` redirect to `<prefix>/ui/hosts`. With the default empty prefix every URL is `/ui/...`.
+
 - **Hosts.** Power state (read-only, from powermaster), tags, name tags, locked, excluded, policy status (busy-held
   until, idle dwell, booting, boot grace, cooldown, cold off in mm:ss), paired demand, workers, claims. Exclude
   toggle and tags editor.
@@ -501,6 +506,7 @@ key with its default. Unknown keys are a startup error. Durations use Go syntax.
 | `limits.max_demands`, `max_claims`, `max_tags`, `decisions_kept` | `500`, `64`, `32`, `500` | Capacity |
 | `events.ring_size`, `events.heartbeat` | `1000`, `15s` | SSE resume ring and heartbeat |
 | `ui.enabled`, `ui.htpasswd_file` | `true`, `/etc/powerwarden/ui.htpasswd` | Web UI |
+| `ui.path_prefix` | `""` | Serve the UI under `<prefix>/ui` (for a reverse proxy that keeps the prefix). Empty, or `/segment[/segment...]` with no trailing `/` and segments of letters, digits, `. _ ~ -`; no `..` |
 | `host_tags` | none | Optional seed: `hostname: [tags]`, applied only to hosts with no stored tags |
 
 `powerwarden check-config [--config PATH] [--tokens-file PATH]` loads the config, then the tokens file with the

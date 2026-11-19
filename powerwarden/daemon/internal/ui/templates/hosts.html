@@ -9,7 +9,7 @@
   <td>{{.Hostname}}</td>
   <td><span class="state {{.State}}">{{.State}}</span></td>
   <td>
-    <form method="post" action="/ui/hosts/{{pathescape .Hostname}}/tags">
+    <form method="post" action="{{base}}/ui/hosts/{{pathescape .Hostname}}/tags">
       <input name="tags" value="{{join .Tags ", "}}" size="16" placeholder="none"><button>Set</button>
     </form>
     {{if .NameTags}}<div class="muted">name tags: {{join .NameTags ", "}}</div>{{end}}
@@ -24,7 +24,7 @@
   <td>{{deref .PairedDemand}}</td>
   <td>{{join .Workers ", "}}</td>
   <td>
-    <form method="post" action="/ui/hosts/{{pathescape .Hostname}}/exclude">
+    <form method="post" action="{{base}}/ui/hosts/{{pathescape .Hostname}}/exclude">
       {{if .Exclude}}<input type="hidden" name="exclude" value="false"><button>Excluded · include</button>
       {{else}}<input type="hidden" name="exclude" value="true"><button>Exclude</button>{{end}}
     </form>

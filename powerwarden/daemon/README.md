@@ -53,6 +53,7 @@ just build                # binary at cmd/powerwarden/powerwarden
   - `agent` (user tokens): every `GET` (including `/v1/events`) and `PUT`/`POST`/`DELETE` under `/v1/claims*`. It gets 403 `forbidden` on `PUT`/`DELETE /v1/demands*`, `PUT`/`DELETE /v1/workers*`, `PUT /v1/hosts/{h}/tags` and `PUT /v1/hosts/{h}/exclude`, and cannot release another owner's claim. Enforced in `internal/httpapi/tokens.go` (`routeRoles`).
 - `powermaster.token_file`: powerwarden's token for powermaster.
 - `ui.htpasswd_file`: when `ui.enabled`. bcrypt entries only (`htpasswd -B`).
+- `ui.path_prefix`: default empty. Set (e.g. `/powerwarden`) when a reverse proxy serves the UI under a path prefix it does not strip; the UI is then at `<prefix>/ui`.
 
 ## Auth
 

@@ -463,3 +463,130 @@ func TestAppJSListensForClaimEvents(t *testing.T) {
 		t.Fatal("app.js does not listen for claim events")
 	}
 }
+
+var uiPages = []string{"hosts", "demands", "workers", "decisions", "claims"}
+
+func TestPathPrefixServesUnderPrefix(t *testing.T) {
+	e := setup(t, func(c *config.Config) { c.UI.PathPrefix = "/p" })
+	for _, root := range []string{"/", "/p", "/p/", "/p/ui", "/p/ui/"} {
+		code, _, hdr := e.req(t, "GET", root, nil, func(r *http.Request) { r.Header.Del("Authorization") })
+		if root == "/p/ui" || root == "/p/ui/" {
+			if code != http.StatusUnauthorized {
+				t.Errorf("%s without auth: %d", root, code)
+			}
+			continue
+		}
+		if code != http.StatusSeeOther || hdr.Get("Location") != "/p/ui/hosts" {
+			t.Errorf("GET %s: %d %q", root, code, hdr.Get("Location"))
+		}
+	}
+	code, _, hdr := e.req(t, "GET", "/p/ui", nil, nil)
+	if code != http.StatusSeeOther || hdr.Get("Location") != "/p/ui/hosts" {
+		t.Errorf("GET /p/ui: %d %q", code, hdr.Get("Location"))
+	}
+	for _, p := range uiPages {
+		code, body, _ := e.req(t, "GET", "/p/ui/"+p, nil, nil)
+		if code != 200 {
+			t.Errorf("/p/ui/%s: %d", p, code)
+			continue
+		}
+		if !strings.Contains(body, `"/p/ui/`) {
+			t.Errorf("%s has no /p/ui/ links", p)
+		}
+		if strings.Contains(body, `"/ui/`) {
+			t.Errorf("%s has a stray unprefixed /ui/ URL", p)
+		}
+		if !strings.Contains(body, `data-base="/p"`) {
+			t.Errorf("%s has no data-base", p)
+		}
+		if code, _, _ := e.req(t, "GET", "/ui/"+p, nil, nil); code != http.StatusNotFound {
+			t.Errorf("old /ui/%s: %d, want 404", p, code)
+		}
+		// the live partial must not carry stray URLs either
+		_, part, _ := e.req(t, "GET", "/p/ui/"+p, nil, func(r *http.Request) { r.Header.Set("X-Partial", "1") })
+		if strings.Contains(part, `"/ui/`) {
+			t.Errorf("%s partial has a stray /ui/ URL", p)
+		}
+	}
+	for _, f := range []string{"app.js", "app.css"} {
+		if code, _, _ := e.req(t, "GET", "/p/ui/static/"+f, nil, nil); code != 200 {
+			t.Errorf("static %s: %d", f, code)
+		}
+	}
+	_, js, _ := e.req(t, "GET", "/p/ui/static/app.js", nil, nil)
+	if strings.Contains(js, `"/ui/`) || strings.Contains(js, `'/ui/`) {
+		t.Error("app.js has a literal /ui/ URL")
+	}
+	if !strings.Contains(js, "data-base") {
+		t.Error("app.js does not read data-base")
+	}
+}
+
+func TestPathPrefixEventsStream(t *testing.T) {
+	e := setup(t, func(c *config.Config) { c.UI.PathPrefix = "/p" })
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", e.srv.URL+"/p/ui/events", nil)
+	req.SetBasicAuth("jared", "s3cret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("%d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+}
+
+func TestPathPrefixActionsRedirectUnderPrefix(t *testing.T) {
+	e := setup(t, func(c *config.Config) { c.UI.PathPrefix = "/p" })
+	for _, tc := range []struct{ path, want string }{
+		{"/p/ui/demands", "/p/ui/demands?"},
+		{"/p/ui/claims", "/p/ui/claims?"},
+		{"/p/ui/hosts/" + v1 + "/exclude", "/p/ui/hosts?"},
+		{"/p/ui/hosts/" + v1 + "/tags", "/p/ui/hosts?"},
+	} {
+		form := url.Values{"id": {"manual:x"}, "tags": {"kernel"}, "exclude": {"true"}, "mode": {"exclusive"}}
+		code, _, hdr := e.req(t, "POST", tc.path, form, nil)
+		if code != http.StatusSeeOther || !strings.HasPrefix(hdr.Get("Location"), tc.want) {
+			t.Errorf("POST %s: %d %q", tc.path, code, hdr.Get("Location"))
+		}
+	}
+	if d, err := e.Store.GetDemand(context.Background(), "manual:x"); err != nil || d.Source != "manual" {
+		t.Fatalf("demand not stored via prefixed route: %+v %v", d, err)
+	}
+	if code, _, _ := e.req(t, "POST", "/ui/demands", url.Values{"id": {"manual:y"}}, nil); code == http.StatusSeeOther {
+		t.Error("unprefixed POST served")
+	}
+}
+
+func TestEmptyPrefixURLsUnchanged(t *testing.T) {
+	e := setup(t, nil)
+	_, body, _ := e.req(t, "GET", "/ui/hosts", nil, nil)
+	for _, want := range []string{
+		`<link rel="stylesheet" href="/ui/static/app.css">`,
+		`<script src="/ui/static/app.js" defer></script>`,
+		"<body>",
+		`href="/ui/hosts"`, `href="/ui/demands"`, `href="/ui/claims"`, `href="/ui/workers"`, `href="/ui/decisions"`,
+		`action="/ui/hosts/` + v1 + `/tags"`, `action="/ui/hosts/` + v1 + `/exclude"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("hosts page lacks %s", want)
+		}
+	}
+	if strings.Contains(body, "data-base") {
+		t.Error("empty prefix emits data-base")
+	}
+	_, body, _ = e.req(t, "GET", "/ui/demands", nil, nil)
+	if !strings.Contains(body, `action="/ui/demands"`) {
+		t.Error("demands form action changed")
+	}
+	_, body, _ = e.req(t, "GET", "/ui/claims", nil, nil)
+	if !strings.Contains(body, `action="/ui/claims"`) {
+		t.Error("claims form action changed")
+	}
+	code, _, hdr := e.req(t, "POST", "/ui/demands", url.Values{"id": {"manual:z"}}, nil)
+	if code != http.StatusSeeOther || !strings.HasPrefix(hdr.Get("Location"), "/ui/demands?") {
+		t.Errorf("redirect: %d %q", code, hdr.Get("Location"))
+	}
+}

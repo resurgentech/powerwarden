@@ -17,7 +17,7 @@
   <td>{{.State}}{{if .Detail}}<div class="muted">{{.Detail}}</div>{{end}}</td>
   <td>{{if .Detached}}detached{{else}}{{.LeaseLeft}}{{end}}</td>
   <td>{{.CapLeft}}</td>
-  <td><form method="post" action="/ui/claims/{{pathescape .Id}}/delete"><button>Release</button></form></td>
+  <td><form method="post" action="{{base}}/ui/claims/{{pathescape .Id}}/delete"><button>Release</button></form></td>
 </tr>
 {{else}}
 <tr><td colspan="12" class="muted">No live claims.</td></tr>
@@ -26,7 +26,7 @@
 </table>
 <h2>New claim</h2>
 <p class="muted">Made here, a claim is detached: no process holds it, so it lives until its hard cap or a release. Its owner is <code>ui:{{.User}}</code>.</p>
-<form method="post" action="/ui/claims" class="row">
+<form method="post" action="{{base}}/ui/claims" class="row">
   <label>Tags <input name="tags" required placeholder="node01"></label>
   <label>Mode <select name="mode"><option>hold</option><option>reserve</option><option>dedicated</option></select></label>
   <label>Purpose <input name="purpose" required size="30"></label>
