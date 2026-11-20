@@ -97,10 +97,10 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/resurgentech/keyclient v0.1.1 h1:XRVMIk3oa07h2TpIxA7U6A0DXnsLzERKlQWCV3c9ccU=
 github.com/resurgentech/keyclient v0.1.1/go.mod h1:MmiBU/ndYy3F+/ERuMHZh3ND1wQrsQK2FOhoW3UUYR0=
-github.com/resurgentech/powerwarden/powermaster/api v0.2.0 h1:F+bwzLSGYvLRpsUQKHvNUCLzcjQ3jfkxPxLhQMf34lE=
-github.com/resurgentech/powerwarden/powermaster/api v0.2.0/go.mod h1:17ET2v6agjQ4Veb8oR0XMv0RWMr56yo92tVUyDHLNS4=
-github.com/resurgentech/powerwarden/powerwarden/api v0.2.0 h1:M/QZj3C7p1mEHTdT9J5IwHex7lif97q2AT4hqn6srxw=
-github.com/resurgentech/powerwarden/powerwarden/api v0.2.0/go.mod h1:gIfYLr7v6/67uBxnUbX2kw0R7HQdKwatCbdF7AY+Z/I=
+github.com/resurgentech/powerwarden/powermaster/api v0.3.0 h1:baT2u6NwtyjRiEqIlMpVLO1FXsKl7tlKPpOeScln580=
+github.com/resurgentech/powerwarden/powermaster/api v0.3.0/go.mod h1:17ET2v6agjQ4Veb8oR0XMv0RWMr56yo92tVUyDHLNS4=
+github.com/resurgentech/powerwarden/powerwarden/api v0.3.0 h1:dIkH+I/btmgynrOLB+Vm8gVXvyfPvlrqH44FU07oa04=
+github.com/resurgentech/powerwarden/powerwarden/api v0.3.0/go.mod h1:gIfYLr7v6/67uBxnUbX2kw0R7HQdKwatCbdF7AY+Z/I=
 github.com/rogpeppe/go-internal v1.12.0 h1:exVL4IDcn6na9z1rAb56Vxr+CgyK3nn3O+epU5NdKM8=
 github.com/rogpeppe/go-internal v1.12.0/go.mod h1:E+RYuTGaKKdloAfM02xzb0FW3Paa99yedzYV+kq4uf4=
 github.com/sergi/go-diff v1.1.0 h1:we8PVUC3FE2uYfodKH/nBHMSetSfHDR6scGdBi+erh0=
