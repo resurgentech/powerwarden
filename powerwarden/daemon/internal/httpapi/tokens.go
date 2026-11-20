@@ -15,6 +15,12 @@ import (
 
 var tokenNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.@-]{1,64}$`)
 
+// quoted matches a backtick-quoted span, which yaml.v3 decode errors use to
+// echo a scalar value ("cannot unmarshal !!str `v` into ..."). In a tokens file
+// that value may be a token, so LoadTokens redacts it: serve and check-config
+// both print its error.
+var quoted = regexp.MustCompile("`[^`]*`")
+
 // Roles. A role comes only from the tokens.yaml entry, never from the name.
 const (
 	RoleFull  = "full"
@@ -82,7 +88,8 @@ func LoadTokens(path string) (*Tokens, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
 	if err := dec.Decode(&m); err != nil {
-		return nil, fmt.Errorf("tokens: %s: %w", path, err)
+		// Never echo file contents.
+		return nil, fmt.Errorf("tokens: %s: %s", path, quoted.ReplaceAllString(err.Error(), "`<redacted>`"))
 	}
 	return NewTokenEntries(m)
 }

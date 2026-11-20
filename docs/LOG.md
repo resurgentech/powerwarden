@@ -78,3 +78,11 @@ are appended, never edited in; a hook refuses rewrites.
   `go.work` replaces to v0.3.0; after the api tags are pushed a go.sum commit follows, and
   `powerwarden/daemon/v0.4.0`, `powermaster/daemon/v0.3.0` go on it (tags to be created after review).
 - Commits: 962df01, a6d03b0, 3592420, d918b6b, 6f2503a; this log entry ships in the next commit.
+
+## 2026-11-19 — B5 follow-up: tokens loaders never echo a token
+
+- Both daemons' `httpapi.LoadTokens` (used by `serve` and by `check-config` / `check`) redact yaml's backtick-quoted
+  scalars to `` `<redacted>` ``, so a malformed tokens file no longer prints a token or its first characters
+  (present in both `serve` paths since the initial import). Tests: `TestLoadTokensNeverEchoesAToken` in both,
+  `TestCheckNeverEchoesAToken` (powermaster), `TestServeNeverEchoesAToken` (powerwarden).
+- Commits: 742804f (powermaster); powerwarden in the commit that carries this entry.
