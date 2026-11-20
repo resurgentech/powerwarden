@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/resurgentech/keyclient/keylist"
 	api "github.com/resurgentech/powerwarden/powermaster/api"
 
 	powermaster "github.com/resurgentech/powerwarden/powermaster/daemon"
@@ -31,6 +32,8 @@ type Server struct {
 	// keyRequestURL is personal_keys.request_url; empty makes
 	// GET /v1/key-request answer 404.
 	keyRequestURL string
+	// keys is the pulled key list; nil turns it off (personal_keys.url unset).
+	keys *keylist.Source
 }
 
 // Options configure a Server.
@@ -41,6 +44,8 @@ type Options struct {
 	Heartbeat time.Duration // events.heartbeat; default 15s
 	// KeyRequestURL is personal_keys.request_url; empty: the route is 404.
 	KeyRequestURL string
+	// Keys is the pulled key list; nil turns it off (personal_keys.url unset).
+	Keys *keylist.Source
 }
 
 type route struct {
@@ -54,7 +59,7 @@ func New(o Options) (*Server, error) {
 	if o.Manager == nil || o.Tokens == nil {
 		return nil, errors.New("httpapi: manager and tokens are required")
 	}
-	s := &Server{mgr: o.Manager, tokens: o.Tokens, log: o.Log, heartbeat: o.Heartbeat, mux: http.NewServeMux(), keyRequestURL: o.KeyRequestURL}
+	s := &Server{mgr: o.Manager, tokens: o.Tokens, log: o.Log, heartbeat: o.Heartbeat, mux: http.NewServeMux(), keyRequestURL: o.KeyRequestURL, keys: o.Keys}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -109,13 +114,28 @@ func (s *Server) Routes() []string {
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
+// authenticate checks the bearer token: the tokens file first, as before. On a
+// miss, with a non-empty token and a key list, the list is asked (with refresh
+// on miss). Every powermaster route may be called by a full key and every
+// pulled key is full (PulledRoles), so there is no route the list may not call
+// and no per-route check. The pulled entry's name is the caller name, exactly
+// as a file token's is.
 func (s *Server) authenticate(r *http.Request) (string, bool) {
 	h := r.Header.Get("Authorization")
 	const prefix = "Bearer "
 	if len(h) <= len(prefix) || !strings.EqualFold(h[:len(prefix)], prefix) {
 		return "", false
 	}
-	return s.tokens.Lookup(strings.TrimSpace(h[len(prefix):]))
+	tok := strings.TrimSpace(h[len(prefix):])
+	if name, ok := s.tokens.Lookup(tok); ok {
+		return name, true
+	}
+	if tok != "" && s.keys != nil {
+		if name, _, ok := s.keys.LookupOrRefresh(r.Context(), tok); ok {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -350,6 +370,10 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, _ string) {
 			at = *f.FinishedAt
 		}
 		st.LastPowerError = &api.PowerError{Hostname: f.Hostname, CommandId: f.ID, Error: f.Error, At: at}
+	}
+	if s.keys != nil {
+		pk := personalKeysStatus(s.keys.Status())
+		st.PersonalKeys = &pk
 	}
 	writeJSON(w, http.StatusOK, st)
 }

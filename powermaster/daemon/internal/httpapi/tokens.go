@@ -3,11 +3,13 @@ package httpapi
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/resurgentech/keyclient/keylist"
 	"gopkg.in/yaml.v3"
 )
 
@@ -76,4 +78,33 @@ func (t *Tokens) Lookup(presented string) (string, bool) {
 		return "", false
 	}
 	return t.names[match], true
+}
+
+// PulledRoles are the roles a pulled key list entry may carry (SR-4): the
+// roles this daemon knows. Every powermaster token is full; there are no others.
+var PulledRoles = []string{"full"}
+
+// TakenLocally reports whether a pulled entry clashes with a loaded token: its
+// name is the name of any token, or its SHA-256 (lowercase hex; a value that
+// does not decode is not taken) equals the hash of any token. It reads only the
+// slices built at load time, so it answers the same for the life of the process
+// (keylist.Options.Accept requires that).
+func (t *Tokens) TakenLocally(e keylist.Entry) bool {
+	for _, n := range t.names {
+		if n == e.Name {
+			return true
+		}
+	}
+	b, err := hex.DecodeString(e.SHA256)
+	if err != nil || len(b) != sha256.Size {
+		return false
+	}
+	var h [sha256.Size]byte
+	copy(h[:], b)
+	for _, th := range t.hashes {
+		if th == h {
+			return true
+		}
+	}
+	return false
 }

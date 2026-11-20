@@ -51,6 +51,15 @@ error. Durations use Go syntax (`30s`, `5m`).
 - `personal_keys.request_url` is optional (off by default): an absolute `http`
   or `https` URL where a person requests a key for this service, advertised by
   the unauthenticated `GET /v1/key-request`. Unset, that route is 404.
+- `personal_keys.url` is optional (off by default): the key-list URL that people's
+  personal keys are pulled from (keyclient's `docs/CONTRACT.md`). Its sub-keys are
+  an error without it: `token_file` (optional pull token), `cache_file`
+  (**required** when `url` is set, no default), `refresh` (default `1m`, greater
+  than zero), `refresh_on_miss` (default `5s`; `0s` turns it off) and
+  `allow_insecure_http` (default `false`; lets a plain-`http` `url` point at a host
+  that is not loopback). A pulled key must be `full`, and its name becomes
+  `requested_by`. `GET /v1/stats` gains `personal_keys` when `url` is set. See
+  `docs/DESIGN-powermaster.md`.
 
 Secrets never go in `config.yaml`. Check a config against the live inventory
 before deploying:
@@ -60,6 +69,11 @@ just check /path/to/config.yaml   # needs the Vault environment; non-zero on err
 ```
 
 With `personal_keys.request_url` set, the `ok:` line ends with ` key_request=on`.
+With `personal_keys.url` set, `check` also loads `tokens_file` with the loader `serve`
+uses, builds the key-list source as `serve` does (it never starts it and sends
+nothing), fails with `personal_keys: <error>` on a refusal, and appends
+` key_list=on`, then ` key_list_insecure_http=on` when `allow_insecure_http` is true
+and the URL is plain `http`.
 
 ## Build the image
 

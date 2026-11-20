@@ -8,8 +8,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,10 +19,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/resurgentech/keyclient/keylist"
 	powermaster "github.com/resurgentech/powerwarden/powermaster/daemon"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/hw"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/internal/events"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/internal/httpapi"
+	"github.com/resurgentech/powerwarden/powermaster/daemon/internal/keysource"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/internal/tui"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/inventory"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/store"
@@ -103,8 +107,50 @@ func check(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("ok: %s resolves against the inventory (%d hosts)%s\n", *cfgPath, n, cfg.CheckSuffix())
+	keys, err := keyListSuffix(cfg)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("ok: %s resolves against the inventory (%d hosts)%s%s\n", *cfgPath, n, cfg.CheckSuffix(), keys)
 	return nil
+}
+
+// buildKeys builds the pulled key list with the helper and options serve and
+// check share. Built once, after the tokens are loaded: tokens.yaml is not
+// reloaded while running, so the Source's Accept stays stable for the life of
+// the process. It returns nil when personal_keys.url is unset.
+func buildKeys(cfg powermaster.Config, tokens *httpapi.Tokens, log *slog.Logger) (*keylist.Source, error) {
+	return keysource.New(cfg.PersonalKeys, httpapi.PulledRoles, tokens.TakenLocally, log)
+}
+
+// startKeys starts the key list with ctx and logs its one line. serve calls it
+// after the handler is built and before the listener starts; nil does nothing.
+func startKeys(ctx context.Context, src *keylist.Source, log *slog.Logger) error {
+	return keysource.Start(ctx, src, log)
+}
+
+// keyListSuffix is check's part for the key list. With personal_keys.url unset
+// it is empty and loads nothing. Otherwise it loads the tokens file with serve's
+// loader (Accept needs it) and builds the source exactly as serve does, never
+// starting it: nothing is sent and no cache file is written. The suffix is
+// " key_list=on", then " key_list_insecure_http=on" when allow_insecure_http is
+// true and the URL is plain http.
+func keyListSuffix(cfg powermaster.Config) (string, error) {
+	if cfg.PersonalKeys.URL == "" {
+		return "", nil
+	}
+	tokens, err := httpapi.LoadTokens(cfg.TokensFile)
+	if err != nil {
+		return "", err
+	}
+	if _, err := buildKeys(cfg, tokens, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+		return "", err
+	}
+	suffix := " key_list=on"
+	if u, err := url.Parse(cfg.PersonalKeys.URL); err == nil && u.Scheme == "http" && cfg.PersonalKeys.AllowInsecureHTTP {
+		suffix += " key_list_insecure_http=on"
+	}
+	return suffix, nil
 }
 
 func serve(ctx context.Context, args []string) error {
@@ -127,6 +173,10 @@ func serve(ctx context.Context, args []string) error {
 		return fmt.Errorf("inventory: %w", err)
 	}
 	tokens, err := httpapi.LoadTokens(cfg.TokensFile)
+	if err != nil {
+		return err
+	}
+	keys, err := buildKeys(cfg, tokens, log)
 	if err != nil {
 		return err
 	}
@@ -153,8 +203,11 @@ func serve(ctx context.Context, args []string) error {
 		return err
 	}
 	api, err := httpapi.New(httpapi.Options{Manager: mgr, Tokens: tokens, Log: log, Heartbeat: cfg.Events.Heartbeat.D(),
-		KeyRequestURL: cfg.PersonalKeys.RequestURL})
+		KeyRequestURL: cfg.PersonalKeys.RequestURL, Keys: keys})
 	if err != nil {
+		return err
+	}
+	if err := startKeys(ctx, keys, log); err != nil {
 		return err
 	}
 	srv := &http.Server{Addr: cfg.Listen, Handler: api, ReadHeaderTimeout: 10 * time.Second}
