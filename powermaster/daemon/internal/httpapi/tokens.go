@@ -7,11 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/resurgentech/keyclient/keylist"
 	"gopkg.in/yaml.v3"
 )
+
+// quoted matches a backtick-quoted span, which yaml.v3 decode errors use to
+// echo a scalar value ("cannot unmarshal !!str `v` into ..."). In a tokens file
+// that value may be a token, so it is redacted as powerwarden's check-config
+// does.
+var quoted = regexp.MustCompile("`[^`]*`")
 
 // Tokens maps a caller name ("powerwarden", "alice") to its bearer token.
 // Lookups compare against every token in constant time.
@@ -59,7 +66,8 @@ func LoadTokens(path string) (*Tokens, error) {
 	}
 	var m map[string]string
 	if err := yaml.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("tokens file %s: %v", path, err)
+		// Never echo file contents: serve and check both print this error.
+		return nil, fmt.Errorf("tokens file %s: %s", path, quoted.ReplaceAllString(err.Error(), "`<redacted>`"))
 	}
 	return NewTokens(m)
 }
