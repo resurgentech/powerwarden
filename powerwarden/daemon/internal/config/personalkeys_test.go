@@ -94,7 +94,7 @@ func TestSR2PersonalKeysURLMalformed(t *testing.T) {
 		"user only":  {"https://tokenuser@keys.example/x", "https://tokenuser@keys.example/x"},
 		"fragment":   {"https://keys.example/x#f", "https://keys.example/x#f"},
 		"empty frag": {"https://keys.example/x#", "https://keys.example/x"},
-		"unparsable": {"http://[::1", "<redacted>"},
+		"unparsable": {"http://[::1", "xxxxx"},
 	}
 	for name, c := range cases {
 		_, err := parseReq("personal_keys:\n  cache_file: /c\n  url: \"" + c.in + "\"\n")

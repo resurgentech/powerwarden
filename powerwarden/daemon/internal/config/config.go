@@ -421,7 +421,7 @@ func (c Config) Validate() error {
 // or not), cache_file, refresh, refresh_on_miss.
 func validatePersonalKeys(p PersonalKeys, bad func(format string, a ...any)) {
 	if p.URL != "" && !validListURL(p.URL) {
-		shown := "<redacted>"
+		shown := "xxxxx"
 		if u, err := url.Parse(p.URL); err == nil {
 			shown = u.Redacted()
 		}

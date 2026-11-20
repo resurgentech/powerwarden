@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/resurgentech/keyclient/keylist"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/config"
@@ -71,7 +72,12 @@ func Start(ctx context.Context, src *keylist.Source, log *slog.Logger) error {
 	if err := src.Start(ctx); err != nil {
 		return fmt.Errorf("personal_keys: %w", err)
 	}
-	st := src.Status()
-	log.Info(fmt.Sprintf("personal_keys: list origin=%s entries=%d age=%s", st.Origin, st.Entries, st.Age))
+	log.Info(listLine(src.Status()))
 	return nil
+}
+
+// listLine is the one start-up line: a single message, no attributes, the age
+// rounded to whole seconds (0s when origin is none).
+func listLine(st keylist.Status) string {
+	return fmt.Sprintf("personal_keys: list origin=%s entries=%d age=%s", st.Origin, st.Entries, st.Age.Round(time.Second))
 }

@@ -19,7 +19,7 @@ func hexOf(s string) string {
 
 func TestSR4TakenLocally(t *testing.T) {
 	toks, err := NewTokenEntries(map[string]TokenEntry{
-		"hourchd":    {Token: "hourchd-token-0123456789"},
+		"hourchd":       {Token: "hourchd-token-0123456789"},
 		"operator@desk": {Token: "oper-agent-token-0123456", Role: RoleAgent},
 	})
 	if err != nil {
@@ -65,7 +65,7 @@ func TestSR7PersonalKeysStatusMapping(t *testing.T) {
 	if got.AgeSeconds == nil || *got.AgeSeconds != 90 {
 		t.Fatalf("age truncates: %v", got.AgeSeconds)
 	}
-	if got.ListTime == nil || !got.ListTime.Equal(lt) || got.ListTime.Location() != lt.Location() {
+	if got.ListTime == nil || !got.ListTime.Equal(lt) || got.ListTime.Location() != time.UTC || got.LastSuccess == nil || got.LastSuccess.Location() != time.UTC {
 		t.Fatalf("list_time: %v", got.ListTime)
 	}
 	if got.LastSuccess == nil || !got.LastSuccess.Equal(ls) {

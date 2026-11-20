@@ -24,11 +24,11 @@ func personalKeysStatus(st keylist.Status) api.PersonalKeysStatus {
 	}
 	if st.Origin != keylist.OriginNone {
 		age := int(st.Age / time.Second)
-		lt := st.ListTime
+		lt := st.ListTime.UTC()
 		out.AgeSeconds, out.ListTime = &age, &lt
 	}
 	if !st.LastSuccess.IsZero() {
-		ls := st.LastSuccess
+		ls := st.LastSuccess.UTC()
 		out.LastSuccess = &ls
 	}
 	if st.LastError != nil {

@@ -545,7 +545,7 @@ The key-list settings are checked with the rest: a sub-key present in the file w
 and `cache_file` is required once `url` is set. Anything keyclient's `keylist.New` refuses (a plain-`http` URL
 without `allow_insecure_http`, an unreadable `token_file`) stops the start and `check-config` with
 `personal_keys: <keyclient's error>`; for the plain-`http` rule the message ends
-`; set personal_keys.allow_insecure_http: true only for a network path you trust`. A URL is printed redacted.
+`; set personal_keys.allow_insecure_http: true only for a network path you trust`. A URL is printed redacted (Go's `URL.Redacted()`; `"xxxxx"` when it does not parse).
 
 `powerwarden check-config [--config PATH] [--tokens-file PATH]` loads the config, then the tokens file with the
 loader `serve` uses; `--tokens-file` overrides `tokens_file` so a rendered pair can be checked off-box. A missing or
@@ -672,7 +672,7 @@ copied here.
 - **Lifecycle.** `keylist.New` runs in `build` right after the tokens load; an error stops the start. `Start(ctx)`
   runs with the serve context after the handler is built and before the listener starts, so a usable cache serves
   from the first request and the service starts even when the provider is down. After `Start` one info line is
-  logged: `personal_keys: list origin=<origin> entries=<n> age=<age>`. keyclient logs pull failures and recoveries
+  logged: `personal_keys: list origin=<origin> entries=<n> age=<age>`, with the age rounded to whole seconds. keyclient logs pull failures and recoveries
   itself; the daemon adds nothing.
 - **Health.** `GET /v1/healthz` is unchanged: a provider that is down does not make the service unhealthy, it keeps
   serving the cached list. `GET /v1/stats` (authenticated) gains `personal_keys`, present only when `url` is set:
