@@ -36,6 +36,11 @@ type Fake struct {
 	Hosts  []pw.HostView
 	Owner  string
 
+	// KeyRequestURL, when set, is what GET /v1/key-request (key request
+	// discovery) answers: {"request_url": KeyRequestURL}. Unset, that path is a
+	// 404 like any unknown route, which is "no key provider".
+	KeyRequestURL string
+
 	// OnCreate, when set, runs under the fake's lock right after a claim is
 	// created; tests use it to bind a claim or fail it.
 	OnCreate func(c *pw.Claim)
@@ -125,6 +130,8 @@ func (f *Fake) serve(w http.ResponseWriter, hr *http.Request) {
 	defer f.mu.Unlock()
 	path := r.Path
 	switch {
+	case path == "/v1/key-request" && r.Method == http.MethodGet && f.KeyRequestURL != "":
+		write(w, 200, map[string]string{"request_url": f.KeyRequestURL})
 	case path == "/v1/hosts" && r.Method == http.MethodGet:
 		write(w, 200, f.Hosts)
 	case path == "/v1/claims" && r.Method == http.MethodGet:

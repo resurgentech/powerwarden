@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/resurgentech/keyclient v0.1.1
 	github.com/resurgentech/powerwarden/powerwarden/api v0.1.0
 )
 

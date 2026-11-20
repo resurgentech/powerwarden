@@ -43,6 +43,7 @@ type rig struct {
 	out    *syncBuf
 	errb   *syncBuf
 	getenv map[string]string
+	term   bool // what env.IsTerminal reports
 }
 
 func newRig(t *testing.T) *rig {
@@ -64,7 +65,8 @@ func newRig(t *testing.T) *rig {
 
 func (r *rig) env(args ...string) env {
 	return env{Args: args, Getenv: func(k string) string { return r.getenv[k] }, Home: r.home,
-		Stdin: io.NopCloser(strings.NewReader("")), Stdout: nopWC{r.out}, Stderr: r.errb}
+		Stdin: io.NopCloser(strings.NewReader("")), Stdout: nopWC{r.out}, Stderr: r.errb,
+		IsTerminal: func() bool { return r.term }}
 }
 
 func (r *rig) do(args ...string) int {

@@ -21,10 +21,15 @@ import (
 	pw "github.com/resurgentech/powerwarden/powerwarden/api"
 )
 
+// Version is pwrwrdn's version: the MCP implementation version and, as
+// pwrwrdn/<Version>, the Tool of a key request.
+const Version = "0.2.0"
+
 const (
 	EnvURL           = "POWERWARDEN_URL"
 	EnvCAFile        = "POWERWARDEN_CA_FILE"
 	EnvTokenFile     = "POWERWARDEN_TOKEN_FILE"
+	EnvKeyRequestURL = "POWERWARDEN_KEY_REQUEST_URL"
 	defaultTokenPath = ".config/powerwarden/token"
 	defaultURLPath   = ".config/powerwarden/url"
 )

@@ -21,10 +21,57 @@ just install
 This runs `go install ./cmd/pwrwrdn`, which puts `pwrwrdn` in `$GOBIN`
 (default `~/go/bin`). Make sure that directory is on your `PATH`.
 
-## Get a token
+## Get a key
 
-Every user has a token named `<user>@<machine>` with role `agent`. The token
-lives in OpenBao; you fetch it once per machine.
+The first time you use `pwrwrdn` on a machine with no token file, it asks for a
+key. You do not run anything extra:
+
+1. Run any command, for example `pwrwrdn hosts`. It files a key request with the
+   key provider the powerwarden server points to (discovery), or the one you
+   name with `--key-request-url` or `POWERWARDEN_KEY_REQUEST_URL`. The request
+   asks for role `agent` (change it with `--role`), with the name hint
+   `<user>@<short hostname>` and tool `pwrwrdn/<version>`.
+2. It prints one line on stderr: approve the request at the address shown, and
+   check that the code shown there matches the code in the line.
+   `pwrwrdn` never opens the address for you.
+3. In a terminal the command waits for the approval and then goes on. Without
+   a terminal (or with `--no-key-request`) it prints the line and the message
+   `key request pending; run this again after approving`, then exits with code
+   **75**. Approve, then run the command again: it collects the key and goes on.
+
+The key is stored at `~/.config/powerwarden/token` (or `--token-file` /
+`POWERWARDEN_TOKEN_FILE`), mode 0600. The first call made with a key received
+this way is sent once more, after 5 seconds, if the service answers `401`
+(a new key can take a moment to reach the service).
+
+Exit codes of a command that asked for a key: `75` request pending, or another
+`pwrwrdn` is handling the request for the same token file (try again shortly);
+`1` for a request that was denied, expired or already handed out (run it again
+to file a new request), or refused by the provider (`try again in <n>s` when it
+says when); `0` and the command's own result once a key is in place. If the
+server has no key provider and you gave no key request URL, the error is the
+same "no token" error as before.
+
+Two commands help:
+
+```
+pwrwrdn key request [--role R] [--no-key-request]   # ask for a key now, without another command
+pwrwrdn key status                                  # token file present or absent; the pending request's service, code and expiry
+```
+
+`key status` reads files only: no network, and it never shows the poll secret.
+The contract and state machines are in the keyclient repo's `docs/CONTRACT.md`
+and `docs/STATES.md`.
+
+Flags (every command that loads a token, and `key request`; `mcp` takes the
+first two): `--key-request-url URL` (env `POWERWARDEN_KEY_REQUEST_URL`; the flag
+wins), `--role ROLE` (default `agent`), `--no-key-request`.
+
+### Deprecated: setup-token
+
+`pwrwrdn setup-token` still works and prints a deprecation notice. Every user
+has a token named `<user>@<machine>` with role `agent`, which lives in
+OpenBao; you fetch it once per machine.
 
 1. The admin mints a token for `NAME` (`<user>@<machine>`), makes the
    powerwarden server accept it, and stores it in OpenBao under field `NAME`
@@ -70,7 +117,14 @@ Other config, optional: `POWERWARDEN_CA_FILE` (an extra CA for that server),
 ## MCP
 
 Add this to `.mcp.json`. There is no token and no env in it; the server reads
-the token file.
+the token file. With no token file the server still starts. Until a key lands,
+every tool call returns an error result: `No powerwarden key on this machine
+yet. ` followed by the approval line (address and code to check) and ` Then
+retry.` Approve the request, then call a tool again. If the request is denied,
+expires or is refused, the next call says so, and the call after that files a
+new request. If another `pwrwrdn` is filing the request, the result is `another
+pwrwrdn is handling the key request; retry shortly`. Nothing but protocol is
+written to stdout, and the address is never opened.
 
 ```json
 {

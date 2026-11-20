@@ -86,3 +86,23 @@ are appended, never edited in; a hook refuses rewrites.
   (present in both `serve` paths since the initial import). Tests: `TestLoadTokensNeverEchoesAToken` in both,
   `TestCheckNeverEchoesAToken` (powermaster), `TestServeNeverEchoesAToken` (powerwarden).
 - Commits: 742804f (powermaster); powerwarden in the commit that carries this entry.
+
+## 2026-11-20 — B8 pwrwrdn: request a key on first use
+
+- Every token-loading command (run, claim, release, extend, power, hosts, claims) asks for a key through keyclient's
+  `request.Ensure` when the token file does not exist: `--key-request-url` / `POWERWARDEN_KEY_REQUEST_URL` (else
+  discovery at the service), `--role` (default `agent`), `--no-key-request`; name hint `$USER@<short host>` (the
+  short host alone without a user), tool `pwrwrdn/0.2.0`. With a terminal on stderr it waits and goes on after
+  approval; otherwise it prints the notice and `key request pending; run this again after approving`, exit 75. The
+  other outcomes print the shared tool wording (exit 75 for busy, 1 for denied, expired, consumed, unauthorized,
+  provider errors); no provider keeps today's no-token error. A key received in the flow gets one retry, after 5 s,
+  of its first call if that call is refused with 401.
+- New `pwrwrdn key request` and `pwrwrdn key status` (token present or absent; the pending request's service, code
+  and expiry, never its poll secret). `setup-token` stays, marked deprecated.
+- `pwrwrdn mcp` starts without a key; each tool call goes through a gate: a pending request returns the error result
+  `No powerwarden key on this machine yet. <notice> Then retry.`, busy and final errors return their wording, and
+  the call after a final error files again; once the key lands the client is built and serves. Nothing else on
+  stdout; the approval address is never opened.
+- The module requires `keyclient v0.1.1`. README and DESIGN doc updated.
+- Release: `powerwarden/mcp/v0.2.0` goes on the commit that carries this entry (tag to be created after review).
+- Commits: the B8 commit on branch `b8-tools` (this entry ships in it).

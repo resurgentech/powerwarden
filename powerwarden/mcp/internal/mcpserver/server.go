@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,20 +21,66 @@ const waitSeconds = 60
 
 // Config wires the server. The keeper carries the session id and the claim id
 // prefix ("mcp").
+//
+// With API and Keeper set the server serves at once. Without them (no key on
+// this machine yet) Connect is asked before every tool call until it returns
+// an API; its error text becomes the tool's error result. NewKeeper then
+// builds the keeper, once, for that API.
 type Config struct {
-	API    client.API
-	Keeper *keeper.Keeper
+	API       client.API
+	Keeper    *keeper.Keeper
+	Connect   func(ctx context.Context) (client.API, error)
+	NewKeeper func(api client.API) *keeper.Keeper
 }
 
 type server struct {
+	connect   func(ctx context.Context) (client.API, error)
+	newKeeper func(api client.API) *keeper.Keeper
+
+	mu  sync.Mutex // guards the first assignment of api and k
 	api client.API
 	k   *keeper.Keeper
 }
 
+// Server is the MCP server with the state Serve needs on exit.
+type Server struct {
+	MCP *mcp.Server
+	s   *server
+}
+
+// gate returns nil when the API is ready, else the error result to send.
+func (s *server) gate(ctx context.Context) *mcp.CallToolResult {
+	s.mu.Lock()
+	if s.api != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	if s.connect == nil {
+		s.mu.Unlock()
+		return s.result("no powerwarden client", true)
+	}
+	api, err := s.connect(ctx)
+	if err != nil {
+		s.mu.Unlock()
+		return s.result(err.Error(), true)
+	}
+	s.k = s.newKeeper(api)
+	s.api = api
+	s.mu.Unlock()
+	return nil
+}
+
+// keeper returns the keeper, nil until the first successful Connect.
+func (s *server) keeper() *keeper.Keeper {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.k
+}
+
 // New builds the MCP server with every tool registered.
-func New(c Config) *mcp.Server {
-	s := &server{api: c.API, k: c.Keeper}
-	srv := mcp.NewServer(&mcp.Implementation{Name: "pwrwrdn", Version: "0.1.0"}, &mcp.ServerOptions{
+func New(c Config) *Server {
+	s := &server{api: c.API, k: c.Keeper, connect: c.Connect, newKeeper: c.NewKeeper}
+	srv := mcp.NewServer(&mcp.Implementation{Name: "pwrwrdn", Version: client.Version}, &mcp.ServerOptions{
 		Instructions: "Claim lab hosts through powerwarden. claim_host returns at once; poll wait_for_claim until state is ready. " +
 			"Leases are renewed for you. Always release_host when done.",
 	})
@@ -44,24 +91,31 @@ func New(c Config) *mcp.Server {
 	mcp.AddTool(srv, &mcp.Tool{Name: "release_host", Description: "Release a claim. Also acknowledges a lost-claim warning for it."}, s.releaseHost)
 	mcp.AddTool(srv, &mcp.Tool{Name: "power_host", Description: "Send a power command for the claim's host. hold/reserve: powerup, reboot. dedicated: powerup, powerdown, powercut, reboot. Returns the command, or the refusal code and message."}, s.powerHost)
 	mcp.AddTool(srv, &mcp.Tool{Name: "my_claims", Description: "Claims owned by this token, from any session; this_session marks the ones made by this process."}, s.myClaims)
-	return srv
+	return &Server{MCP: srv, s: s}
 }
 
 // Serve runs srv on t until the peer closes (stdin EOF) or ctx ends (SIGTERM),
-// then makes a best-effort release of every claim, 5s in total.
-func Serve(ctx context.Context, srv *mcp.Server, k *keeper.Keeper, t mcp.Transport) error {
-	err := srv.Run(ctx, t)
-	rctx, cancel := context.WithTimeout(context.Background(), keeper.ReleaseTimeout)
-	defer cancel()
-	k.ReleaseAll(rctx)
-	k.Close()
+// then makes a best-effort release of every claim, 5s in total. A server that
+// never got a key has no claims to release.
+func Serve(ctx context.Context, srv *Server, t mcp.Transport) error {
+	err := srv.MCP.Run(ctx, t)
+	if k := srv.s.keeper(); k != nil {
+		rctx, cancel := context.WithTimeout(context.Background(), keeper.ReleaseTimeout)
+		defer cancel()
+		k.ReleaseAll(rctx)
+		k.Close()
+	}
 	return err
 }
 
 // ---- results ----
 
 func (s *server) warning() string {
-	lost := s.k.Lost()
+	k := s.keeper()
+	if k == nil {
+		return ""
+	}
+	lost := k.Lost()
 	if len(lost) == 0 {
 		return ""
 	}
@@ -169,6 +223,9 @@ type listHostsIn struct {
 }
 
 func (s *server) listHosts(ctx context.Context, _ *mcp.CallToolRequest, in listHostsIn) (*mcp.CallToolResult, any, error) {
+	if res := s.gate(ctx); res != nil {
+		return res, nil, nil
+	}
 	var p pw.ListHostsParams
 	if len(in.Tags) > 0 {
 		t := strings.Join(in.Tags, ",")
@@ -212,6 +269,9 @@ type claimHostIn struct {
 }
 
 func (s *server) claimHost(ctx context.Context, _ *mcp.CallToolRequest, in claimHostIn) (*mcp.CallToolResult, any, error) {
+	if res := s.gate(ctx); res != nil {
+		return res, nil, nil
+	}
 	if len(in.Tags) == 0 {
 		return s.fail(errors.New("tags: at least one tag is required"))
 	}
@@ -253,6 +313,9 @@ type claimIDIn struct {
 }
 
 func (s *server) waitForClaim(ctx context.Context, _ *mcp.CallToolRequest, in claimIDIn) (*mcp.CallToolResult, any, error) {
+	if res := s.gate(ctx); res != nil {
+		return res, nil, nil
+	}
 	wait := waitSeconds
 	p := pw.GetClaimParams{Wait: &wait, Since: s.k.Seen(in.ClaimID)}
 	resp, err := s.api.GetClaimWithResponse(ctx, in.ClaimID, &p)
@@ -282,6 +345,9 @@ type extendIn struct {
 }
 
 func (s *server) extendClaim(ctx context.Context, _ *mcp.CallToolRequest, in extendIn) (*mcp.CallToolResult, any, error) {
+	if res := s.gate(ctx); res != nil {
+		return res, nil, nil
+	}
 	if !(in.Hours > 0) {
 		return s.fail(errors.New("hours: must be greater than 0"))
 	}
@@ -296,6 +362,9 @@ func (s *server) extendClaim(ctx context.Context, _ *mcp.CallToolRequest, in ext
 }
 
 func (s *server) releaseHost(ctx context.Context, _ *mcp.CallToolRequest, in claimIDIn) (*mcp.CallToolResult, any, error) {
+	if res := s.gate(ctx); res != nil {
+		return res, nil, nil
+	}
 	if err := s.k.Release(ctx, in.ClaimID); err != nil {
 		return s.fail(err)
 	}
@@ -308,6 +377,9 @@ type powerIn struct {
 }
 
 func (s *server) powerHost(ctx context.Context, _ *mcp.CallToolRequest, in powerIn) (*mcp.CallToolResult, any, error) {
+	if res := s.gate(ctx); res != nil {
+		return res, nil, nil
+	}
 	resp, err := s.api.ClaimPowerWithResponse(ctx, in.ClaimID, pw.ClaimPower{Action: pw.ClaimPowerAction(in.Action)})
 	if err != nil {
 		return s.fail(err)
@@ -324,6 +396,9 @@ func (s *server) powerHost(ctx context.Context, _ *mcp.CallToolRequest, in power
 }
 
 func (s *server) myClaims(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+	if res := s.gate(ctx); res != nil {
+		return res, nil, nil
+	}
 	mine := true
 	resp, err := s.api.ListClaimsWithResponse(ctx, &pw.ListClaimsParams{Mine: &mine})
 	if err != nil {

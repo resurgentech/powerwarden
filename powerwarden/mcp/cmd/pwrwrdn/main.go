@@ -1,5 +1,5 @@
 // Command pwrwrdn is the powerwarden agent CLI: the `mcp` server plus the
-// setup-token, run, claim, release, extend, power, hosts and claims commands.
+// key, setup-token, run, claim, release, extend, power, hosts and claims commands.
 package main
 
 import (
@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+
+	"github.com/resurgentech/keyclient/request"
 )
 
 // env is everything a subcommand needs from the process, injectable in tests.
@@ -25,12 +27,18 @@ type env struct {
 	// Signals, when set, replaces the process signal subscription of `run`
 	// (tests inject signals here; main leaves it nil).
 	Signals <-chan os.Signal
+	// IsTerminal reports whether the notice of a key request would reach a
+	// person (main: stderr is a terminal). Nil, as in tests, means no.
+	IsTerminal func() bool
 }
 
-// exitError makes dispatch exit with code. A non-empty msg is printed first.
+// exitError makes dispatch exit with code. A non-empty msg is printed first,
+// after "pwrwrdn: "; lines are printed bare, one per line (the SR-9 key
+// request messages).
 type exitError struct {
-	code int
-	msg  string
+	code  int
+	msg   string
+	lines []string
 }
 
 func (x *exitError) Error() string { return x.msg }
@@ -43,7 +51,8 @@ type command struct {
 // commands is the subcommand table; adding one is one entry.
 var commands = map[string]command{
 	"mcp":         {"serve MCP tools on stdio, one process per agent session", runMCP},
-	"setup-token": {"fetch your user token from OpenBao into ~/.config/powerwarden/token", runSetupToken},
+	"setup-token": {"deprecated: use pwrwrdn key request. Fetch your user token from OpenBao into ~/.config/powerwarden/token", runSetupToken},
+	"key":         {"request a key (key request) or show key state (key status)", runKey},
 	"run":         {"claim a host, run a command on it, release on exit", runRun},
 	"claim":       {"make a detached claim and print its id", runClaim},
 	"release":     {"release a claim: release <id>", runRelease},
@@ -83,6 +92,9 @@ func dispatch(ctx context.Context, e env) int {
 			if x.msg != "" {
 				fmt.Fprintf(e.Stderr, "pwrwrdn: %s\n", x.msg)
 			}
+			for _, l := range x.lines {
+				fmt.Fprintln(e.Stderr, l)
+			}
 			return x.code
 		}
 		fmt.Fprintf(e.Stderr, "pwrwrdn: %v\n", err)
@@ -96,5 +108,6 @@ func main() {
 	defer stop()
 	home, _ := os.UserHomeDir()
 	os.Exit(dispatch(ctx, env{Args: os.Args[1:], Getenv: os.Getenv, Home: home,
-		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}))
+		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+		IsTerminal: func() bool { return request.IsTerminal(os.Stderr) }}))
 }

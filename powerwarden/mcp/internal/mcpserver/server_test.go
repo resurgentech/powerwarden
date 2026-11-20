@@ -21,7 +21,7 @@ type env struct {
 	f   *pwfake.Fake
 	k   *keeper.Keeper
 	clk *keeper.FakeClock
-	srv *mcp.Server
+	srv *mcpserver.Server
 	cs  *mcp.ClientSession
 	// done is closed when Serve returns
 	done chan error
@@ -43,7 +43,7 @@ func newEnv(t *testing.T) *env {
 	ct, st := mcp.NewInMemoryTransports()
 	ctx, cancel := context.WithCancel(context.Background())
 	e := &env{f: f, k: k, clk: clk, srv: srv, done: make(chan error, 1), stop: cancel}
-	go func() { e.done <- mcpserver.Serve(ctx, srv, k, st) }()
+	go func() { e.done <- mcpserver.Serve(ctx, srv, st) }()
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(context.Background(), ct, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -14,10 +14,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/resurgentech/keyclient/request"
 	pw "github.com/resurgentech/powerwarden/powerwarden/api"
 	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/cli"
 	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
 	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/keeper"
+	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/keyreq"
 )
 
 // claimPrefix is the id prefix of every claim the CLI makes.
@@ -55,17 +57,34 @@ func parseMixed(fs *flag.FlagSet, args []string) ([]string, error) {
 }
 
 // connect loads the token (refusing a group/other readable file) and builds
-// the client.
-func connect(e env, fs *flag.FlagSet, tokenFile string) (client.API, client.Config, error) {
+// the client. When there is no token file it asks for a key (ensureKey); a key
+// received in this call arms the retry-once rule on the client.
+func connect(ctx context.Context, e env, fs *flag.FlagSet, tokenFile string) (client.API, client.Config, error) {
 	cfg, err := client.ResolveConfig(urlFlag(fs), e.Getenv, e.Home)
 	if err != nil {
 		return nil, cfg, err
 	}
-	tok, err := client.LoadToken(client.TokenPath(tokenFile, e.Getenv, e.Home))
+	path := client.TokenPath(tokenFile, e.Getenv, e.Home)
+	tok, lerr := client.LoadToken(path)
+	armed := false
+	if lerr != nil {
+		if !errors.Is(lerr, os.ErrNotExist) {
+			return nil, cfg, lerr
+		}
+		res, err := ensureKey(ctx, e, fs, cfg, path)
+		if errors.Is(err, request.ErrNoProvider) {
+			return nil, cfg, lerr // today's "no token" error, unchanged
+		}
+		if err != nil {
+			return nil, cfg, err
+		}
+		tok, armed = res.Token, res.Name != ""
+	}
+	hc, err := client.HTTPClient(cfg.CAFile)
 	if err != nil {
 		return nil, cfg, err
 	}
-	api, err := client.New(cfg, tok, nil)
+	api, err := client.New(cfg, tok, keyreq.WrapRetry(hc, armed))
 	return api, cfg, err
 }
 
@@ -156,6 +175,7 @@ func printClaim(e env, c pw.Claim) {
 // ---- setup-token ----
 
 func runSetupToken(ctx context.Context, e env) error {
+	fmt.Fprintln(e.Stderr, "pwrwrdn: setup-token is deprecated; use pwrwrdn key request")
 	fs, tf := newFlags("setup-token", e)
 	name := fs.String("name", "", "token name in OpenBao (default $USER@<short hostname>)")
 	force := fs.Bool("force", false, "overwrite an existing token file")
@@ -226,7 +246,7 @@ func runSetupToken(ctx context.Context, e env) error {
 // ---- run ----
 
 func runRun(ctx context.Context, e env) error {
-	fs, tf := newFlags("run", e)
+	fs, tf := newKeyFlags("run", e)
 	cf := addClaimFlags(fs, tf)
 	on := fs.Bool("on", false, "send powerup and wait for host_state on (for dedicated claims, which powerwarden never boots)")
 	if err := fs.Parse(e.Args); err != nil {
@@ -240,7 +260,7 @@ func runRun(ctx context.Context, e env) error {
 	if err != nil {
 		return err
 	}
-	api, _, err := connect(e, fs, *tf)
+	api, _, err := connect(ctx, e, fs, *tf)
 	if err != nil {
 		return err
 	}
@@ -390,7 +410,7 @@ func exitCode(err error) error {
 // ---- claim ----
 
 func runClaim(ctx context.Context, e env) error {
-	fs, tf := newFlags("claim", e)
+	fs, tf := newKeyFlags("claim", e)
 	cf := addClaimFlags(fs, tf)
 	wait := fs.Bool("wait", false, "block until the claim is ready")
 	if err := fs.Parse(e.Args); err != nil {
@@ -400,7 +420,7 @@ func runClaim(ctx context.Context, e env) error {
 	if err != nil {
 		return err
 	}
-	api, _, err := connect(e, fs, *tf)
+	api, _, err := connect(ctx, e, fs, *tf)
 	if err != nil {
 		return err
 	}
@@ -425,7 +445,7 @@ func runClaim(ctx context.Context, e env) error {
 // ---- release / extend / power ----
 
 func runRelease(ctx context.Context, e env) error {
-	fs, tf := newFlags("release", e)
+	fs, tf := newKeyFlags("release", e)
 	pos, err := parseMixed(fs, e.Args)
 	if err != nil {
 		return err
@@ -433,7 +453,7 @@ func runRelease(ctx context.Context, e env) error {
 	if len(pos) != 1 {
 		return errors.New("usage: pwrwrdn release <id>")
 	}
-	api, _, err := connect(e, fs, *tf)
+	api, _, err := connect(ctx, e, fs, *tf)
 	if err != nil {
 		return err
 	}
@@ -445,7 +465,7 @@ func runRelease(ctx context.Context, e env) error {
 }
 
 func runExtend(ctx context.Context, e env) error {
-	fs, tf := newFlags("extend", e)
+	fs, tf := newKeyFlags("extend", e)
 	pos, err := parseMixed(fs, e.Args)
 	if err != nil {
 		return err
@@ -457,7 +477,7 @@ func runExtend(ctx context.Context, e env) error {
 	if err != nil {
 		return err
 	}
-	api, _, err := connect(e, fs, *tf)
+	api, _, err := connect(ctx, e, fs, *tf)
 	if err != nil {
 		return err
 	}
@@ -476,7 +496,7 @@ func runExtend(ctx context.Context, e env) error {
 }
 
 func runPower(ctx context.Context, e env) error {
-	fs, tf := newFlags("power", e)
+	fs, tf := newKeyFlags("power", e)
 	waitOn := fs.String("wait-on", "", "after the command, wait up to this long for host_state on")
 	pos, err := parseMixed(fs, e.Args)
 	if err != nil {
@@ -500,7 +520,7 @@ func runPower(ctx context.Context, e env) error {
 			return fmt.Errorf("--wait-on: %w", err)
 		}
 	}
-	api, _, err := connect(e, fs, *tf)
+	api, _, err := connect(ctx, e, fs, *tf)
 	if err != nil {
 		return err
 	}
@@ -538,12 +558,12 @@ func runPower(ctx context.Context, e env) error {
 // ---- hosts / claims ----
 
 func runHosts(ctx context.Context, e env) error {
-	fs, tf := newFlags("hosts", e)
+	fs, tf := newKeyFlags("hosts", e)
 	tags := fs.String("tags", "", "only hosts carrying all of these tags (explicit or name tags)")
 	if err := fs.Parse(e.Args); err != nil {
 		return err
 	}
-	api, _, err := connect(e, fs, *tf)
+	api, _, err := connect(ctx, e, fs, *tf)
 	if err != nil {
 		return err
 	}
@@ -567,12 +587,12 @@ func runHosts(ctx context.Context, e env) error {
 }
 
 func runClaims(ctx context.Context, e env) error {
-	fs, tf := newFlags("claims", e)
+	fs, tf := newKeyFlags("claims", e)
 	mine := fs.Bool("mine", false, "only claims owned by this token")
 	if err := fs.Parse(e.Args); err != nil {
 		return err
 	}
-	api, _, err := connect(e, fs, *tf)
+	api, _, err := connect(ctx, e, fs, *tf)
 	if err != nil {
 		return err
 	}

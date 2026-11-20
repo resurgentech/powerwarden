@@ -696,6 +696,52 @@ The setting is optional and off by default, and works with any provider that spe
 `specs/fixtures/keyrequest/`). The route is registered with `RoleNone` in `routeRoles`: no token is checked, and a
 token's role is never `none`.
 
+### pwrwrdn: key request on first use
+
+`pwrwrdn` (`powerwarden/mcp`) asks for its key on first use with keyclient's `request.Ensure`. The contract and the
+state machines are keyclient's `docs/CONTRACT.md` and `docs/STATES.md`; this section records only what is specific
+to `pwrwrdn`. The code is in `internal/keyreq`.
+
+| Option | Value |
+|---|---|
+| `ServiceURL` | the resolved service URL |
+| `Override` | `--key-request-url`, else `POWERWARDEN_KEY_REQUEST_URL` |
+| `TokenPath` | the existing token path |
+| `Role` | `agent`, or `--role` |
+| `NameHint` | `$USER@<short host>`; the short host alone when `$USER` is empty |
+| `Host` | left at its default |
+| `Tool` | `pwrwrdn/<version>` |
+| `AllowInsecureHTTP` | never set |
+
+The notice is `Notice.String()`, on one line, on stderr (in the tool result under MCP). The approval URL is never
+opened or passed to a shell. With a terminal on stderr the CLI uses `Wait: true`; without one, or with
+`--no-key-request`, `Wait: false`. `pwrwrdn` never blocks a non-interactive caller on a person.
+
+| Outcome (CLI) | stderr | Exit |
+|---|---|---|
+| `*ErrPending` | the notice, then `key request pending; run this again after approving` | 75 |
+| `ErrBusy` | `another process is handling the key request for <token path>; try again shortly` | 75 |
+| `ErrDenied` | `key request denied` | 1 |
+| `ErrExpired`, `ErrConsumed` | keyclient's message, then `run this again to file a new request` | 1 |
+| `ErrUnauthorized`, `*ProviderError` | keyclient's message; with `RetryAfter`, `try again in <n>s` (rounded up) | 1 |
+| `ErrNoProvider` | the existing "no token" error | 1 |
+
+These lines are printed without the `pwrwrdn: ` prefix. Any other error uses the usual `pwrwrdn: <error>` line.
+
+**MCP.** The server starts without a key. Each tool call goes through a gate: it runs `Ensure` with `Wait: false`
+(context of the server, not of the call) and, until a key lands, returns an MCP error result
+`No powerwarden key on this machine yet. <notice> Then retry.`, built from the `*ErrPending` and reused for later
+calls with no second filing. `ErrBusy` gives `another pwrwrdn is handling the key request; retry shortly`. When
+`Done()` closes, the next call takes `Err()`: a final error is returned in the CLI's words (joined with a newline)
+and the call after it files a new request; success builds the API client and the keeper and serves normally.
+
+**Retry once.** A key received in this flow (`Result.Name != ""`, or the key that landed after an MCP pending
+request) arms a transport that, if the very first service call gets `401`, waits 5 seconds and sends that call once
+more (the body is replayed with `GetBody`). It never retries for a key that was already on disk, and never twice.
+
+`pwrwrdn key status` is read only (no network, no lock): the token file present or absent, and for
+`<token>.pending` its service, code and expiry, never the poll secret. `setup-token` stays, deprecated.
+
 ### Client module
 
 `powerwarden/api` is generated from the spec with `oapi-codegen` v2, committed, with a `just drift` check and

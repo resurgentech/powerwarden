@@ -89,6 +89,8 @@ github.com/perimeterx/marshmallow v1.1.5 h1:a2LALqQ1BlHM8PZblsDdidgv1mWi1DgC2UmX
 github.com/perimeterx/marshmallow v1.1.5/go.mod h1:dsXbUu8CRzfYP5a87xpp0xq9S3u0Vchtcl8we9tYaXw=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/resurgentech/keyclient v0.1.1 h1:XRVMIk3oa07h2TpIxA7U6A0DXnsLzERKlQWCV3c9ccU=
+github.com/resurgentech/keyclient v0.1.1/go.mod h1:MmiBU/ndYy3F+/ERuMHZh3ND1wQrsQK2FOhoW3UUYR0=
 github.com/resurgentech/powerwarden/powerwarden/api v0.1.0 h1:7v/m2Gpwu0W6w1yGzlgaDKThy54py1PPSdmsWxDOnoQ=
 github.com/resurgentech/powerwarden/powerwarden/api v0.1.0/go.mod h1:gIfYLr7v6/67uBxnUbX2kw0R7HQdKwatCbdF7AY+Z/I=
 github.com/rogpeppe/go-internal v1.12.0 h1:exVL4IDcn6na9z1rAb56Vxr+CgyK3nn3O+epU5NdKM8=
