@@ -11,10 +11,10 @@ use (
 // Intra-repo requires name a tag. These versioned replaces point each required
 // version at the workspace copy, so in-repo work needs no published tag.
 // When an intra-repo require moves to a new version, move its replace with it.
-// The daemons require the api modules at v0.2.0; pwrwrdn still requires
+// The daemons require the api modules at v0.3.0; pwrwrdn still requires
 // powerwarden/api v0.1.0.
-replace github.com/resurgentech/powerwarden/powermaster/api v0.2.0 => ./powermaster/api
+replace github.com/resurgentech/powerwarden/powermaster/api v0.3.0 => ./powermaster/api
 
 replace github.com/resurgentech/powerwarden/powerwarden/api v0.1.0 => ./powerwarden/api
 
-replace github.com/resurgentech/powerwarden/powerwarden/api v0.2.0 => ./powerwarden/api
+replace github.com/resurgentech/powerwarden/powerwarden/api v0.3.0 => ./powerwarden/api

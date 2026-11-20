@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/hashicorp/vault-client-go v0.4.3
 	github.com/resurgentech/keyclient v0.1.1
-	github.com/resurgentech/powerwarden/powermaster/api v0.2.0
+	github.com/resurgentech/powerwarden/powermaster/api v0.3.0
 	github.com/stretchr/testify v1.10.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.46.1
