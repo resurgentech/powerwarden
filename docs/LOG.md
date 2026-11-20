@@ -59,3 +59,22 @@ are appended, never edited in; a hook refuses rewrites.
   requires and the `go.work` replaces to v0.2.0 with go.sum, and `powerwarden/daemon/v0.3.0`,
   `powermaster/daemon/v0.2.0` go on it (tags to be created after review).
 - Commits: 6020d04 (code); this log entry ships in the next commit.
+
+## 2026-11-19 — B5 key list source in both daemons
+
+- Spec first: shared schema `PersonalKeysStatus` and optional `personal_keys` on `GET /v1/stats` in both specs (info
+  version 0.3.0; the `last_error` description is quoted, as the unquoted flow-style text is invalid); both api
+  clients regenerated.
+- Both daemons: new optional settings `personal_keys.url`, `token_file`, `cache_file` (required with url, no
+  default), `refresh` (1m), `refresh_on_miss` (5s), `allow_insecure_http`, with the shared validation wording
+  ("set" means written in the file). With url set, a keyclient `keylist.Source` is built after the tokens are loaded
+  (powerwarden accepts roles full and agent, powermaster full; tokens.yaml names and hashes win), started with the
+  serve context before the listener, and asked after a tokens-file miss (refresh on miss). powerwarden: a pulled
+  key's name is the caller and claim owner, and its role goes through the route-to-role table. `GET /v1/stats` gains
+  `personal_keys` (UTC times). `check-config` / `check` build the source with serve's options and append
+  ` key_list=on` and ` key_list_insecure_http=on`. Start-up line `personal_keys: list origin=… entries=… age=…`.
+  Url unset: nothing changes. Both daemons require `keyclient v0.1.1`. SR-8 tests named after keyclient's STATES rows.
+- Release: `powermaster/api/v0.3.0`, `powerwarden/api/v0.3.0` on 962df01; 6f2503a moves the daemons' requires and the
+  `go.work` replaces to v0.3.0; after the api tags are pushed a go.sum commit follows, and
+  `powerwarden/daemon/v0.4.0`, `powermaster/daemon/v0.3.0` go on it (tags to be created after review).
+- Commits: 962df01, a6d03b0, 3592420, d918b6b, 6f2503a; this log entry ships in the next commit.
