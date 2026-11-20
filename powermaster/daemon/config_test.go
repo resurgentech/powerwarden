@@ -386,3 +386,28 @@ func TestCheckSuffix(t *testing.T) {
 		t.Fatalf("set: %q", s)
 	}
 }
+
+func TestResolveKeyRequestURL(t *testing.T) {
+	env := func(v string) func(string) string {
+		return func(k string) string {
+			if k == EnvKeyRequestURL {
+				return v
+			}
+			return ""
+		}
+	}
+	cases := []struct{ flag, env, want string }{
+		{"", "", ""},
+		{"  https://keys.example/r ", "https://other.example/r", "https://keys.example/r"},
+		{"", " https://other.example/r\n", "https://other.example/r"},
+		{"   ", "", ""},
+	}
+	for _, c := range cases {
+		if got := ResolveKeyRequestURL(c.flag, env(c.env)); got != c.want {
+			t.Errorf("ResolveKeyRequestURL(%q, env %q) = %q, want %q", c.flag, c.env, got, c.want)
+		}
+	}
+	if EnvKeyRequestURL != "POWERMASTER_KEY_REQUEST_URL" {
+		t.Fatalf("EnvKeyRequestURL = %q", EnvKeyRequestURL)
+	}
+}

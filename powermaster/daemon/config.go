@@ -298,6 +298,21 @@ func DefaultConfig() Config {
 	}
 }
 
+// EnvKeyRequestURL is the environment variable behind `monitor --key-request-url`.
+const EnvKeyRequestURL = "POWERMASTER_KEY_REQUEST_URL"
+
+// ResolveKeyRequestURL picks the key-request URL override for `powermaster
+// monitor`: the --key-request-url flag, then $POWERMASTER_KEY_REQUEST_URL
+// (whitespace trimmed). Empty means the monitor discovers it from the service.
+func ResolveKeyRequestURL(flagURL string, getenv func(string) string) string {
+	for _, v := range []string{flagURL, getenv(EnvKeyRequestURL)} {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // ResolveMonitorURL picks the API base URL for `powermaster monitor`: the
 // --api-url flag, then tui.api_url from --config, then POWERMASTER_URL, then the
 // one-line file ~/.config/powermaster/url (whitespace trimmed). No URL is

@@ -106,3 +106,15 @@ are appended, never edited in; a hook refuses rewrites.
 - The module requires `keyclient v0.1.1`. README and DESIGN doc updated.
 - Release: `powerwarden/mcp/v0.2.0` goes on the commit that carries this entry (tag to be created after review).
 - Commits: the B8 commit on branch `b8-tools` (this entry ships in it).
+
+## 2026-11-20 — B9 powermaster monitor: request a key on first use
+
+- Before the TUI starts, a missing token file goes through keyclient's `request.Ensure`: `--key-request-url` /
+  `POWERMASTER_KEY_REQUEST_URL` (else discovery), `--role` (default `full`), `--no-key-request`; name hint
+  `$USER@<short host>` (the short host alone without a user), tool `powermaster/0.4.0`. With no terminal on stderr
+  (or `--no-key-request`) no TUI runs: the notice and `key request pending; run this again after approving`, exit 75.
+  The other outcomes use the same wording and exit codes as `pwrwrdn`; no provider keeps today's token-file error.
+  A key received in the flow is tried with `GET /v1/hosts` before the TUI; a 401 is retried once after 5 s.
+  `main` gains exit codes. README updated.
+- Release: `powermaster/daemon/v0.4.0` goes on the commit that carries this entry (tag to be created after review).
+- Commits: the B9 commit on branch `b8-tools` (this entry ships in it).

@@ -14,16 +14,16 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/resurgentech/keyclient/keylist"
+	"github.com/resurgentech/keyclient/request"
 	powermaster "github.com/resurgentech/powerwarden/powermaster/daemon"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/hw"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/internal/events"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/internal/httpapi"
+	"github.com/resurgentech/powerwarden/powermaster/daemon/internal/keyreq"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/internal/keysource"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/internal/tui"
 	"github.com/resurgentech/powerwarden/powermaster/daemon/inventory"
@@ -32,12 +32,39 @@ import (
 
 const defaultConfig = "/etc/powermaster/config.yaml"
 
+// version is the tool version sent in a key request ("powermaster/<version>").
+const version = "0.4.0"
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage:
   powermaster serve   [--config %s]
   powermaster check   [--config %s]
   powermaster monitor [--config FILE] [--api-url URL] [--token-file FILE]
-`, defaultConfig, defaultConfig)
+                      [--key-request-url URL] [--role ROLE] [--no-key-request]
+
+monitor asks for a key when the token file is missing: --key-request-url
+(default $%s) overrides discovery from the service, --role is the role
+asked for (default full), --no-key-request files the request and exits 75
+instead of waiting for approval.
+`, defaultConfig, defaultConfig, powermaster.EnvKeyRequestURL)
+}
+
+// reportError prints err and returns the exit code. A *keyreq.ExitError prints
+// its lines bare, one per line; any other error prints "powermaster: <err>"
+// and exits 1.
+func reportError(w io.Writer, err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee *keyreq.ExitError
+	if errors.As(err, &ee) {
+		for _, l := range ee.Lines {
+			fmt.Fprintln(w, l)
+		}
+		return ee.Code
+	}
+	fmt.Fprintln(w, "powermaster:", err)
+	return 1
 }
 
 func main() {
@@ -54,7 +81,15 @@ func main() {
 	case "check":
 		err = check(ctx, os.Args[2:])
 	case "monitor":
-		err = monitor(ctx, os.Args[2:])
+		home, _ := os.UserHomeDir()
+		err = monitorWith(ctx, os.Args[2:], monitorEnv{
+			getenv: os.Getenv, home: home, stderr: os.Stderr,
+			isTerminal: func() bool { return request.IsTerminal(os.Stderr) },
+			hostname:   os.Hostname,
+			runTUI: func(ctx context.Context, c tui.API, cfg tui.Config) error {
+				return tui.Run(ctx, c, cfg)
+			},
+		})
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -62,9 +97,8 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "powermaster:", err)
-		os.Exit(1)
+	if code := reportError(os.Stderr, err); code != 0 {
+		os.Exit(code)
 	}
 }
 
@@ -228,49 +262,4 @@ func serve(ctx context.Context, args []string) error {
 		return err
 	}
 	return nil
-}
-
-func expandHome(p string) string {
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, strings.TrimPrefix(p, "~"))
-		}
-	}
-	return p
-}
-
-func monitor(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("monitor", flag.ExitOnError)
-	cfgPath := fs.String("config", "", "config file (optional; tui section)")
-	apiURL := fs.String("api-url", "", "powermaster API base URL (overrides tui.api_url, $POWERMASTER_URL and ~/.config/powermaster/url)")
-	tokenFile := fs.String("token-file", "", "file holding the bearer token (overrides tui.token_file)")
-	_ = fs.Parse(args)
-
-	cfg := powermaster.DefaultConfig()
-	if *cfgPath != "" {
-		c, err := powermaster.LoadConfig(*cfgPath)
-		if err != nil {
-			return err
-		}
-		cfg = c
-	}
-	if *tokenFile != "" {
-		cfg.TUI.TokenFile = *tokenFile
-	}
-	home, _ := os.UserHomeDir()
-	baseURL, err := powermaster.ResolveMonitorURL(*apiURL, cfg.TUI.APIURL, os.Getenv, home)
-	if err != nil {
-		return err
-	}
-	raw, err := os.ReadFile(expandHome(cfg.TUI.TokenFile))
-	if err != nil {
-		return fmt.Errorf("token file: %w", err)
-	}
-	client, err := tui.NewHTTPClient(baseURL, strings.TrimSpace(string(raw)))
-	if err != nil {
-		return err
-	}
-	return tui.Run(ctx, client, tui.Config{
-		LockedTaps: cfg.TUI.LockedTaps, LockedTapGap: cfg.TUI.LockedTapGap.D(), LockedForceDelay: cfg.TUI.LockedForceDelay.D(),
-	})
 }

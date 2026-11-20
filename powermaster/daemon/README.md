@@ -124,3 +124,31 @@ in `--config`, then `POWERMASTER_URL`, then the one-line file
 Keys: `u` powerup, `d` powerdown (on a `soft_off` host, powercut), `t` toggle, `r` reboot. On a locked host the
 fourth `t` or `r` tap within `tui.locked_tap_gap` of each other sends with
 `force=true` after `tui.locked_force_delay`.
+
+### First use: requesting a key
+
+When the token file does not exist, `monitor` asks for a key before the TUI
+starts, if the service advertises a key provider (`personal_keys.request_url`,
+found through `GET /v1/key-request`). It prints one notice: approve the request
+at the address shown, in a browser, and check that the code shown there matches
+the one in the notice. In a terminal, `monitor` then waits; on approval the key
+is stored in the token file (mode 0600) and the TUI starts. The address is never
+opened for you. The protocol is keyclient's, see its `docs/CONTRACT.md`.
+
+- `--key-request-url URL` (or `POWERMASTER_KEY_REQUEST_URL`; the flag wins) names
+  the provider's request URL and skips discovery.
+- `--role ROLE` is the role asked for; the default is `full`.
+- `--no-key-request` files the request and exits at once instead of waiting.
+  With no terminal on stderr the monitor behaves the same way and never starts
+  the TUI.
+- Exit 75 means the request is still open (or another `monitor` is handling it
+  for the same token file): approve it, then run `monitor` again. It picks up
+  the same request and collects the key.
+- Exit 1 follows a denied, expired or failed request, with a one-line reason;
+  an expired request is replaced by running `monitor` again.
+- A service that advertises no provider keeps the old error (`token file: open
+  ...: no such file or directory`). A token file that exists is used as it is:
+  no request, no retry.
+- A key just issued is tried once against the service before the TUI starts; on
+  `401` (the service may not have loaded it yet) `monitor` waits 5 s and tries
+  once more, and exits 1 if that is refused too.
