@@ -59,7 +59,22 @@ pwrwrdn key request [--role R] [--no-key-request]   # ask for a key now, without
 pwrwrdn key status                                  # token file present or absent; the pending request's service, code and expiry
 ```
 
-`key status` reads files only: no network, and it never shows the poll secret.
+`key status` reads files only: no network, no lock, and it never shows the poll
+secret. It asks keyclient (`request.Pending`) about the request your current
+settings (`--url`, `--key-request-url` and their env vars) would resume, and
+prints one of:
+
+```
+token    <path>: present | absent
+pending  <path>.pending: none
+pending  <path>.pending: service <host>, code <code>, expires <UTC time>
+pending  <path>.pending: expired
+pending  <path>.pending: filed for another service
+```
+
+A pending file keyclient cannot use is an error (exit 1) that names the file
+and says to remove it. With a pending file but no powerwarden URL configured,
+it says it cannot check the request without one (exit 1).
 The contract and state machines are in the keyclient repo's `docs/CONTRACT.md`
 and `docs/STATES.md`.
 

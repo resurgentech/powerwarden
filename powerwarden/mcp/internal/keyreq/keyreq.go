@@ -2,7 +2,9 @@
 // plan; keyclient's docs/CONTRACT.md and docs/STATES.md define the flow
 // itself): the request options, the table that turns each outcome into the
 // words and exit code SR-9 gives it, the MCP texts and gate, the retry-once
-// transport for a just-issued key, and the reader behind `pwrwrdn key status`.
+// transport for a just-issued key. `pwrwrdn key status` reads the pending
+// request through keyclient's request.Pending; nothing here knows the pending
+// file's format.
 //
 // Nothing here opens an approval URL, and nothing here prints or returns a
 // poll secret or a key.
@@ -12,11 +14,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/resurgentech/keyclient/request"
 	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
@@ -119,35 +119,3 @@ func Classify(err error, tokenPath string) (lines []string, code int, ok bool) {
 // PendingMCPText is the tool result while no key has landed: the notice, which
 // holds the approval address and the code, never a poll secret.
 func PendingMCPText(n request.Notice) string { return mcpNoKey + n.String() + mcpRetry }
-
-// printable keeps printable characters, like keyclient does for its notice.
-func printable(s string, max int) string {
-	var b strings.Builder
-	n := 0
-	for _, r := range s {
-		if n >= max {
-			break
-		}
-		switch {
-		case unicode.IsPrint(r):
-			b.WriteRune(r)
-			n++
-		case unicode.IsSpace(r):
-			b.WriteByte(' ')
-			n++
-		}
-	}
-	return strings.TrimSpace(b.String())
-}
-
-func serviceHost(serviceURL, override string) string {
-	raw := serviceURL
-	if raw == "" {
-		raw = override
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return ""
-	}
-	return printable(u.Host, 255)
-}

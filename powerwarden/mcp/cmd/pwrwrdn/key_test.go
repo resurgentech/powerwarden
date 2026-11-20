@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,11 +44,6 @@ func newKeyRig(t *testing.T, discovery bool) *keyRig {
 	}
 	r.getenv["USER"] = "tester"
 	p := keyclienttest.NewProvider(t)
-	// keyclienttest v0.1.1 sets its server field after the server starts and
-	// reads it under its lock while filing. A filing from another process gives
-	// the race detector no ordering, so take the lock once here (SetInterval
-	// does, with the default value) to publish the field.
-	p.SetInterval(1)
 	if discovery {
 		r.f.KeyRequestURL = p.RequestURL()
 	} else {
@@ -592,64 +586,125 @@ func TestKeyStatusPresent(t *testing.T) {
 	}
 }
 
-func TestKeyStatusPendingShowsServiceCodeExpiryOnly(t *testing.T) {
-	k := newKeyRig(t, false)
+// fileRequest files a request with a no-terminal command and returns the code
+// its notice showed; the outputs are then cleared.
+func (k *keyRig) fileRequest() (code string) {
+	k.t.Helper()
 	if rc := k.do("hosts"); rc != 75 {
-		t.Fatalf("rc=%d %s", rc, k.errb)
+		k.t.Fatalf("rc=%d %s", rc, k.errb)
 	}
-	var pf map[string]any
-	b, err := os.ReadFile(k.pending())
-	if err != nil || json.Unmarshal(b, &pf) != nil {
-		t.Fatalf("%v", err)
-	}
+	_, code = approveURLAndCode(k.t, k.stderrLines()[0])
 	k.reset()
-	if rc := k.do("key", "status"); rc != 0 {
-		t.Fatalf("rc=%d %s", rc, k.errb)
+	return code
+}
+
+// status runs `key status` and checks that nothing it printed holds a secret
+// and that it touched neither the provider nor the service.
+func (k *keyRig) status(wantRC int, args ...string) string {
+	k.t.Helper()
+	filed, polls, reqs := len(k.p.Filed()), len(k.p.Polls()), len(k.f.Requests())
+	if rc := k.do(append([]string{"key", "status"}, args...)...); rc != wantRC {
+		k.t.Fatalf("rc=%d want %d; stdout %q stderr %q", rc, wantRC, k.out, k.errb)
 	}
-	out := k.out.String()
-	re := regexp.MustCompile(`^token    ` + regexp.QuoteMeta(k.token) + `: absent\npending  ` + regexp.QuoteMeta(k.pending()) +
-		`: service ` + regexp.QuoteMeta(k.serviceHost()) + `, code ([A-Za-z0-9-]+), expires \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\n$`)
-	m := re.FindStringSubmatch(out)
-	if m == nil {
-		t.Fatalf("status output %q", out)
+	k.noSecrets()
+	if len(k.p.Filed()) != filed || len(k.p.Polls()) != polls || len(k.f.Requests()) != reqs {
+		k.t.Fatal("key status used the network")
 	}
-	if m[1] != pf["user_code"] {
-		t.Fatalf("code %q != %v", m[1], pf["user_code"])
-	}
-	for _, key := range []string{"poll_secret", "request_id", "poll_url", "approve_url"} {
-		v, _ := pf[key].(string)
-		if v == "" {
-			t.Fatalf("pending file has no %s", key)
+	return k.out.String()
+}
+
+func (k *keyRig) tokenAbsentLine() string { return "token    " + k.token + ": absent\n" }
+
+// T-30: a current request: its service, code and expiry, nothing more.
+func TestT30_KeyStatusCurrent(t *testing.T) {
+	for _, discovery := range []bool{false, true} {
+		k := newKeyRig(t, discovery)
+		code := k.fileRequest()
+		out := k.status(0)
+		re := regexp.MustCompile(`^` + regexp.QuoteMeta(k.tokenAbsentLine()) + `pending  ` + regexp.QuoteMeta(k.pending()) +
+			`: service ` + regexp.QuoteMeta(k.serviceHost()) + `, code ` + regexp.QuoteMeta(code) +
+			`, expires \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\n$`)
+		if !re.MatchString(out) {
+			t.Fatalf("discovery=%v: %q", discovery, out)
 		}
-		if strings.Contains(out, v) {
-			t.Fatalf("status prints %s", key)
+		if k.errb.String() != "" {
+			t.Fatalf("stderr %q", k.errb)
 		}
-	}
-	if strings.Contains(out, k.p.PollSecret()) || strings.Contains(out, k.p.URL()) {
-		t.Fatalf("status leaks: %q", out)
-	}
-	if k.errb.String() != "" {
-		t.Fatalf("stderr %q", k.errb)
-	}
-	if len(k.p.Filed()) != 1 || len(k.p.Polls()) != 0 {
-		t.Fatalf("status touched the provider: filed=%d polls=%d", len(k.p.Filed()), len(k.p.Polls()))
 	}
 }
 
-func TestKeyStatusUnreadablePendingNeverEchoesContent(t *testing.T) {
+// T-30, ErrPendingExpired: the request's time has run out.
+func TestT30_KeyStatusExpired(t *testing.T) {
 	k := newKeyRig(t, false)
-	if err := os.MkdirAll(filepath.Dir(k.token), 0o700); err != nil {
-		t.Fatal(err)
+	k.p.SetExpiresIn(1)
+	k.fileRequest()
+	time.Sleep(1200 * time.Millisecond)
+	if out := k.status(0); out != k.tokenAbsentLine()+"pending  "+k.pending()+": expired\n" {
+		t.Fatalf("%q", out)
 	}
-	if err := os.WriteFile(k.pending(), []byte(`{"poll_secret":"TOP-SECRET-XYZ" garbage`), 0o600); err != nil {
-		t.Fatal(err)
+}
+
+// T-30, ErrPendingForeign: filed for another service URL.
+func TestT30_KeyStatusForeign(t *testing.T) {
+	k := newKeyRig(t, false)
+	k.fileRequest()
+	if out := k.status(0, "--url", "http://127.0.0.1:1"); out != k.tokenAbsentLine()+"pending  "+k.pending()+": filed for another service\n" {
+		t.Fatalf("%q", out)
 	}
-	if rc := k.do("key", "status"); rc != 1 {
-		t.Fatalf("rc=%d", rc)
+}
+
+// T-30, ErrPendingUnusable: exit 1 with keyclient's message, which names the
+// file and says to remove it; the file's content is never echoed.
+func TestT30_KeyStatusUnusable(t *testing.T) {
+	t.Run("mode", func(t *testing.T) {
+		k := newKeyRig(t, false)
+		k.fileRequest()
+		if err := os.Chmod(k.pending(), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		k.status(1)
+		s := k.errb.String()
+		if !strings.HasPrefix(s, "pwrwrdn: key request: the pending file "+k.pending()+" ") || !strings.Contains(s, "remove it") {
+			t.Fatalf("%q", s)
+		}
+	})
+	t.Run("content", func(t *testing.T) {
+		k := newKeyRig(t, false)
+		if err := os.MkdirAll(filepath.Dir(k.token), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(k.pending(), []byte(`{"x":"TOP-SECRET-XYZ" garbage`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		k.status(1)
+		s := k.errb.String()
+		if !strings.HasPrefix(s, "pwrwrdn: key request: the pending file "+k.pending()+" ") || !strings.Contains(s, "remove it") ||
+			strings.Contains(s, "TOP-SECRET") || strings.Contains(s, "garbage") {
+			t.Fatalf("%q", s)
+		}
+	})
+}
+
+// No service URL configured: with no pending file there is nothing to check;
+// with one, the status says plainly that it cannot tell.
+func TestKeyStatusWithoutAServiceURL(t *testing.T) {
+	k := newKeyRig(t, false)
+	delete(k.getenv, "POWERWARDEN_URL")
+	delete(k.getenv, "POWERWARDEN_KEY_REQUEST_URL")
+	if out := k.status(0); out != k.tokenAbsentLine()+"pending  "+k.pending()+": none\n" {
+		t.Fatalf("%q", out)
 	}
-	s := k.errb.String()
-	if !strings.HasPrefix(s, "pwrwrdn: pending file "+k.pending()+": ") || strings.Contains(s, "TOP-SECRET") || strings.Contains(s, "garbage") {
-		t.Fatalf("%q", s)
+
+	k2 := newKeyRig(t, false)
+	k2.fileRequest()
+	delete(k2.getenv, "POWERWARDEN_URL")
+	delete(k2.getenv, "POWERWARDEN_KEY_REQUEST_URL")
+	if out := k2.status(1); out != k2.tokenAbsentLine() {
+		t.Fatalf("%q", out)
+	}
+	want := "pwrwrdn: cannot check the pending request without the powerwarden URL: powerwarden URL not set: use --url, POWERWARDEN_URL, or write it to ~/.config/powerwarden/url\n"
+	if k2.errb.String() != want {
+		t.Fatalf("%q", k2.errb)
 	}
 }
 

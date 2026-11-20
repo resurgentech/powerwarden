@@ -118,3 +118,15 @@ are appended, never edited in; a hook refuses rewrites.
   `main` gains exit codes. README updated.
 - Release: `powermaster/daemon/v0.4.0` goes on the commit that carries this entry (tag to be created after review).
 - Commits: the B9 commit on branch `b8-tools` (this entry ships in it).
+
+## 2026-11-20 — B8 follow-up: `key status` through keyclient's `request.Pending`
+
+- `pwrwrdn key status` reads the pending request with keyclient v0.1.2's `request.Pending`, built from the options a
+  token-loading command would use (`--url`, `--key-request-url` and their env vars); the module's own pending-file
+  reader is gone, so nothing in pwrwrdn knows that file's format. Pending line: `none`; `service <host>, code <code>,
+  expires <RFC3339 UTC>`; `expired`; `filed for another service`; an unusable file is keyclient's error, exit 1; a
+  pending file with no powerwarden URL configured says it cannot be checked without one, exit 1.
+- The module requires `keyclient v0.1.2`, which also fixes the test provider's race, so the test workaround is gone.
+  README and DESIGN doc updated.
+- Release: `powerwarden/mcp/v0.2.0` goes on the commit that carries this entry (tag to be created after review).
+- Commits: the commit on branch `b8-status` that carries this entry.

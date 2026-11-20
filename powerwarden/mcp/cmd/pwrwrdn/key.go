@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/resurgentech/keyclient/request"
 	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
@@ -138,9 +139,12 @@ func runKeyRequest(ctx context.Context, e env) error {
 }
 
 // runKeyStatus shows the token file and the pending request, read only: no
-// network, no lock, never Ensure.
+// network, no lock, never Ensure. The pending request is read by keyclient's
+// request.Pending with the options a token-loading command would use, so it
+// reports on the request this configuration would resume.
 func runKeyStatus(e env) error {
 	fs, tf := newFlags("key status", e)
+	fs.String("key-request-url", "", "key request URL (default $"+client.EnvKeyRequestURL+")")
 	if err := fs.Parse(e.Args); err != nil {
 		return err
 	}
@@ -152,16 +156,33 @@ func runKeyStatus(e env) error {
 		}
 		state = "absent"
 	}
-	info, err := keyreq.ReadPending(path)
-	if err != nil {
-		return err
-	}
 	fmt.Fprintf(e.Stdout, "token    %s: %s\n", path, state)
 	pp := request.PendingPath(path)
-	if info == nil {
-		fmt.Fprintf(e.Stdout, "pending  %s: none\n", pp)
-		return nil
+	override := keyOverride(e, fs)
+	cfg, cfgErr := client.ResolveConfig(urlFlag(fs), e.Getenv, e.Home)
+	if cfgErr != nil && override == "" {
+		// Nothing to read the request against. With no pending file there is
+		// nothing to tell; with one, say plainly why it cannot be checked.
+		if _, err := os.Lstat(pp); errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(e.Stdout, "pending  %s: none\n", pp)
+			return nil
+		}
+		return fmt.Errorf("cannot check the pending request without the powerwarden URL: %w", cfgErr)
 	}
-	fmt.Fprintf(e.Stdout, "pending  %s: service %s, code %s, expires %s\n", pp, info.Service, info.Code, info.Expires.Format("2006-01-02T15:04:05Z07:00"))
+	n, ok, err := request.Pending(keyreq.Options(keyreq.Params{ServiceURL: cfg.URL, Override: override, TokenPath: path}))
+	var line string
+	switch {
+	case errors.Is(err, request.ErrPendingExpired):
+		line = "expired"
+	case errors.Is(err, request.ErrPendingForeign):
+		line = "filed for another service"
+	case err != nil:
+		return err // ErrPendingUnusable names the file and says to remove it
+	case !ok:
+		line = "none"
+	default:
+		line = fmt.Sprintf("service %s, code %s, expires %s", n.Service, n.UserCode, n.ExpiresAt.UTC().Format(time.RFC3339))
+	}
+	fmt.Fprintf(e.Stdout, "pending  %s: %s\n", pp, line)
 	return nil
 }

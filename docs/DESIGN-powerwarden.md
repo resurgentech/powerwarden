@@ -739,8 +739,11 @@ and the call after it files a new request; success builds the API client and the
 request) arms a transport that, if the very first service call gets `401`, waits 5 seconds and sends that call once
 more (the body is replayed with `GetBody`). It never retries for a key that was already on disk, and never twice.
 
-`pwrwrdn key status` is read only (no network, no lock): the token file present or absent, and for
-`<token>.pending` its service, code and expiry, never the poll secret. `setup-token` stays, deprecated.
+`pwrwrdn key status` is read only (no network, no lock): the token file present or absent, and the pending
+request as keyclient's `request.Pending` reports it for the options a token-loading command would use (service,
+code and expiry; or expired; or filed for another service; an unusable pending file is keyclient's error, exit 1).
+Nothing in pwrwrdn reads the pending file's format, and the poll secret is never shown. `setup-token` stays,
+deprecated.
 
 ### Client module
 

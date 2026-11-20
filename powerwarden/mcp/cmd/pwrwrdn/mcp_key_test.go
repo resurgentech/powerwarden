@@ -108,14 +108,19 @@ func (m *mcpRun) until(t *testing.T, tool string, args map[string]any) (bool, st
 	return false, ""
 }
 
-// expectedNotice rebuilds Notice.String() from the pending file (service, code,
-// expiry) and what the fakes serve.
+// expectedNotice rebuilds Notice.String() from the pending request as keyclient
+// reports it (service, code, expiry) and what the fakes serve.
 func expectedNotice(t *testing.T, k *keyRig) string {
 	t.Helper()
-	p, err := keyreq.ReadPending(k.token)
-	if err != nil || p == nil {
-		t.Fatalf("pending: %v %v", p, err)
+	n, ok, err := request.Pending(keyreq.Options(keyreq.Params{ServiceURL: k.f.Srv.URL,
+		Override: k.getenv["POWERWARDEN_KEY_REQUEST_URL"], TokenPath: k.token}))
+	if err != nil || !ok {
+		t.Fatalf("pending: %v %v", ok, err)
 	}
+	p := struct {
+		Service, Code string
+		Expires       time.Time
+	}{n.Service, n.UserCode, n.ExpiresAt}
 	return request.Notice{Service: p.Service, ApproveURL: k.p.URL() + "/requests?code=" + p.Code, UserCode: p.Code,
 		Role: "agent", Tool: "pwrwrdn/0.2.0", ExpiresAt: p.Expires}.String()
 }
