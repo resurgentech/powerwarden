@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/resurgentech/keyclient/keylist"
 	api "github.com/resurgentech/powerwarden/powerwarden/api"
 
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/app"
@@ -21,10 +22,19 @@ import (
 const maxBody = 64 * 1024
 
 type ctxKey struct{}
+type ctxRoleKey struct{}
 
-// CallerName returns the authenticated token name, if any.
+// CallerName returns the authenticated token name, if any. For a pulled key it
+// is the entry's name.
 func CallerName(ctx context.Context) string {
 	s, _ := ctx.Value(ctxKey{}).(string)
+	return s
+}
+
+// callerRole returns the role of the authenticated caller: the tokens.yaml
+// role, or the pulled entry's role.
+func callerRole(ctx context.Context) string {
+	s, _ := ctx.Value(ctxRoleKey{}).(string)
 	return s
 }
 
@@ -36,6 +46,8 @@ type Server struct {
 	// KeyRequestURL is personal_keys.request_url; empty makes
 	// GET /v1/key-request answer 404.
 	KeyRequestURL string
+	// Keys is the pulled key list; nil turns it off (personal_keys.url unset).
+	Keys *keylist.Source
 }
 
 // Register adds every /v1 route to mux.
@@ -75,24 +87,45 @@ func (s *Server) Register(mux *http.ServeMux) {
 	auth("GET /v1/stats", s.stats)
 }
 
-// bearer authenticates the token and enforces the route's least role.
+// bearer authenticates the token and enforces the route's least role. The
+// tokens file is checked first; on a miss, and when some role of the pulled
+// list may call the route, the key list is asked (with refresh on miss). A
+// pulled key's name and role travel in the request context like a file token's.
 func (s *Server) bearer(need string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		name, valid := "", false
+		tok = strings.TrimSpace(tok)
+		name, role, valid := "", "", false
 		if ok {
-			name, valid = s.Tokens.Name(strings.TrimSpace(tok))
+			if name, valid = s.Tokens.Name(tok); valid {
+				role = s.Tokens.Role(name)
+			}
+		}
+		if ok && !valid && tok != "" && s.Keys != nil && s.listMayCall(need) {
+			name, role, valid = s.Keys.LookupOrRefresh(r.Context(), tok)
 		}
 		if !valid {
 			writeErr(w, http.StatusUnauthorized, api.ErrorCodeUnauthorized, "missing or invalid bearer token")
 			return
 		}
-		if !roleAllows(s.Tokens.Role(name), need) {
-			writeErr(w, http.StatusForbidden, api.ErrorCodeForbidden, "token role "+s.Tokens.Role(name)+" may not call this operation")
+		if !roleAllows(role, need) {
+			writeErr(w, http.StatusForbidden, api.ErrorCodeForbidden, "token role "+role+" may not call this operation")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, name)))
+		ctx := context.WithValue(r.Context(), ctxKey{}, name)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, ctxRoleKey{}, role)))
 	})
+}
+
+// listMayCall reports whether some role a pulled entry can carry may call a
+// route that needs need.
+func (s *Server) listMayCall(need string) bool {
+	for _, role := range PulledRoles {
+		if roleAllows(role, need) {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- demands ----
@@ -252,7 +285,12 @@ func (s *Server) listDecisions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.App.Stats())
+	st := s.App.Stats()
+	if s.Keys != nil {
+		pk := personalKeysStatus(s.Keys.Status())
+		st.PersonalKeys = &pk
+	}
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {

@@ -34,11 +34,89 @@ type Config struct {
 	HostTags map[string][]string `yaml:"host_tags"`
 }
 
-// PersonalKeys configures key request discovery.
+// PersonalKeys configures key request discovery and the pulled key list
+// (keyclient's docs/CONTRACT.md, "Key list").
 type PersonalKeys struct {
 	// RequestURL is advertised unauthenticated by GET /v1/key-request: where a
 	// person requests a key for this service. Empty turns the route off (404).
 	RequestURL string `yaml:"request_url"`
+	// URL is the key-list URL. Empty turns the key list off: nothing pulls and
+	// nothing changes.
+	URL string `yaml:"url"`
+	// TokenFile holds the pull token (optional).
+	TokenFile string `yaml:"token_file"`
+	// CacheFile is required when URL is set; it has no default.
+	CacheFile string `yaml:"cache_file"`
+	// Refresh is the time between pulls; must be greater than zero.
+	Refresh time.Duration `yaml:"refresh"`
+	// RefreshOnMiss is the least time between pulls started by an unknown key;
+	// zero turns refresh on miss off.
+	RefreshOnMiss time.Duration `yaml:"refresh_on_miss"`
+	// AllowInsecureHTTP allows a plain-http URL to a host that is not loopback.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
+
+	// present records which sub-keys appeared in the YAML file, whatever their
+	// value: "set" is presence-based (a sub-key without a url is an error even
+	// when it holds its default).
+	present presentKeys
+}
+
+type presentKeys struct{ tokenFile, cacheFile, refresh, refreshOnMiss, allowInsecureHTTP bool }
+
+// Defaults of the key-list settings (SR-1).
+const (
+	DefaultRefresh       = time.Minute
+	DefaultRefreshOnMiss = 5 * time.Second
+)
+
+// UnmarshalYAML decodes the block onto the values already in p (the defaults),
+// records which sub-keys were present, and refuses unknown keys as the
+// top-level decoder does (Node.Decode does not inherit KnownFields).
+func (p *PersonalKeys) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("line %d: personal_keys must be a mapping", n.Line)
+	}
+	var pr presentKeys
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		switch k := n.Content[i].Value; k {
+		case "request_url", "url":
+		case "token_file":
+			pr.tokenFile = true
+		case "cache_file":
+			pr.cacheFile = true
+		case "refresh":
+			pr.refresh = true
+		case "refresh_on_miss":
+			pr.refreshOnMiss = true
+		case "allow_insecure_http":
+			pr.allowInsecureHTTP = true
+		default:
+			return fmt.Errorf("line %d: field %s not found in type config.PersonalKeys", n.Content[i].Line, k)
+		}
+	}
+	type plain PersonalKeys // no UnmarshalYAML: avoids recursion
+	q := plain(*p)
+	if err := n.Decode(&q); err != nil {
+		return err
+	}
+	*p = PersonalKeys(q)
+	p.present = pr
+	return nil
+}
+
+func (p PersonalKeys) setTokenFile() bool { return p.present.tokenFile || p.TokenFile != "" }
+func (p PersonalKeys) setCacheFile() bool { return p.present.cacheFile || p.CacheFile != "" }
+
+// For a Config built in code, a zero duration also counts as unset, so a
+// PersonalKeys literal made without Default() is "off" rather than an error.
+func (p PersonalKeys) setRefresh() bool {
+	return p.present.refresh || (p.Refresh != 0 && p.Refresh != DefaultRefresh)
+}
+func (p PersonalKeys) setRefreshOnMiss() bool {
+	return p.present.refreshOnMiss || (p.RefreshOnMiss != 0 && p.RefreshOnMiss != DefaultRefreshOnMiss)
+}
+func (p PersonalKeys) setAllowInsecureHTTP() bool {
+	return p.present.allowInsecureHTTP || p.AllowInsecureHTTP
 }
 
 type Powermaster struct {
@@ -153,9 +231,10 @@ func Default() Config {
 			ClaimWaitMax:       time.Minute,
 			ClaimSweepAfter:    24 * time.Hour,
 		},
-		Limits: Limits{MaxDemands: 500, MaxClaims: 64, MaxTags: 32, DecisionsKept: 500},
-		Events: Events{RingSize: 1000, Heartbeat: 15 * time.Second},
-		UI:     UI{Enabled: true, HtpasswdFile: "/etc/powerwarden/ui.htpasswd", Auth: "htpasswd"},
+		Limits:       Limits{MaxDemands: 500, MaxClaims: 64, MaxTags: 32, DecisionsKept: 500},
+		Events:       Events{RingSize: 1000, Heartbeat: 15 * time.Second},
+		UI:           UI{Enabled: true, HtpasswdFile: "/etc/powerwarden/ui.htpasswd", Auth: "htpasswd"},
+		PersonalKeys: PersonalKeys{Refresh: DefaultRefresh, RefreshOnMiss: DefaultRefreshOnMiss},
 	}
 }
 
@@ -314,6 +393,7 @@ func (c Config) Validate() error {
 	if err := validRequestURL(c.PersonalKeys.RequestURL); err != nil {
 		bad("personal_keys.request_url %q: %v", c.PersonalKeys.RequestURL, err)
 	}
+	validatePersonalKeys(c.PersonalKeys, bad)
 	// Name tags (a host's full and short name) are reserved: no host_tags
 	// value may equal any host_tags key or its short form.
 	reserved := map[string]bool{}
@@ -334,6 +414,55 @@ func (c Config) Validate() error {
 		return fmt.Errorf("config: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+// validatePersonalKeys checks the key-list settings (SR-2), in this order: a
+// malformed url; with no url, each sub-key that is set; with a url (malformed
+// or not), cache_file, refresh, refresh_on_miss.
+func validatePersonalKeys(p PersonalKeys, bad func(format string, a ...any)) {
+	if p.URL != "" && !validListURL(p.URL) {
+		shown := "<redacted>"
+		if u, err := url.Parse(p.URL); err == nil {
+			shown = u.Redacted()
+		}
+		bad("personal_keys.url %q: want an absolute http(s)://host/... URL (or \"\" to turn the key list off)", shown)
+	}
+	if p.URL == "" {
+		for _, k := range []struct {
+			key string
+			set bool
+		}{
+			{"token_file", p.setTokenFile()}, {"cache_file", p.setCacheFile()},
+			{"refresh", p.setRefresh()}, {"refresh_on_miss", p.setRefreshOnMiss()},
+			{"allow_insecure_http", p.setAllowInsecureHTTP()},
+		} {
+			if k.set {
+				bad("personal_keys.%s is set but personal_keys.url is empty", k.key)
+			}
+		}
+		return
+	}
+	if p.CacheFile == "" {
+		bad("personal_keys.cache_file: required when personal_keys.url is set")
+	}
+	if p.Refresh <= 0 {
+		bad("personal_keys.refresh: must be greater than zero")
+	}
+	if p.RefreshOnMiss < 0 {
+		bad("personal_keys.refresh_on_miss: must not be negative")
+	}
+}
+
+// validListURL: an absolute http(s) URL with a host, no user information, no fragment.
+func validListURL(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	if sc := u.Scheme; sc != "http" && sc != "https" {
+		return false
+	}
+	return u.Hostname() != "" && u.User == nil && u.Fragment == "" && !strings.Contains(s, "#")
 }
 
 func sortedKeys(m map[string][]string) []string {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/resurgentech/keyclient/keylist"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/app"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/clock"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/config"
@@ -17,6 +18,7 @@ import (
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/events"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/hostview"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/httpapi"
+	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/keysource"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/pm"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/reconcile"
 	"github.com/resurgentech/powerwarden/powerwarden/daemon/internal/source"
@@ -31,7 +33,15 @@ type daemon struct {
 	store   *store.Store
 	rec     *reconcile.Reconciler
 	handler http.Handler
+	// keys is the pulled key list; nil when personal_keys.url is unset.
+	keys    *keylist.Source
 	closers []func()
+}
+
+// start starts the key list with ctx, before the listener accepts requests,
+// and logs its one line. It does nothing when personal_keys.url is unset.
+func (d *daemon) start(ctx context.Context) error {
+	return keysource.Start(ctx, d.keys, d.log)
 }
 
 func (d *daemon) Close() {
@@ -70,6 +80,11 @@ func build(cfg config.Config, log *slog.Logger, transport http.RoundTripper) (*d
 	if err != nil {
 		return nil, err
 	}
+	// Built once, after the tokens are loaded: tokens.yaml is not reloaded while
+	// running, so the Source's Accept stays stable for the life of the process.
+	if d.keys, err = keysource.New(cfg.PersonalKeys, httpapi.PulledRoles, tokens.TakenLocally, log); err != nil {
+		return nil, err
+	}
 	pmToken, err := os.ReadFile(cfg.Powermaster.TokenFile)
 	if err != nil {
 		return nil, fmt.Errorf("powermaster token: %w", err)
@@ -87,7 +102,7 @@ func build(cfg config.Config, log *slog.Logger, transport http.RoundTripper) (*d
 	a := app.New(cfg, st, d.rec, view, ring, hub, clk, log)
 
 	mux := http.NewServeMux()
-	(&httpapi.Server{App: a, Tokens: tokens, Log: log, KeyRequestURL: cfg.PersonalKeys.RequestURL}).Register(mux)
+	(&httpapi.Server{App: a, Tokens: tokens, Log: log, KeyRequestURL: cfg.PersonalKeys.RequestURL, Keys: d.keys}).Register(mux)
 	if cfg.UI.Enabled {
 		var u *ui.UI
 		if cfg.UI.Auth == "proxy" {
@@ -128,6 +143,9 @@ func serve(ctx context.Context, cfgPath string) error {
 		return err
 	}
 	defer d.Close()
+	if err := d.start(ctx); err != nil {
+		return err
+	}
 
 	srv := &http.Server{Addr: cfg.Listen, Handler: d.handler, ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute}

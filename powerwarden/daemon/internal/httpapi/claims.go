@@ -14,8 +14,7 @@ import (
 
 // caller is the authenticated token as the app layer sees it.
 func (s *Server) caller(r *http.Request) app.Caller {
-	name := CallerName(r.Context())
-	return app.Caller{Name: name, Operator: s.Tokens.Role(name) == RoleFull}
+	return app.Caller{Name: CallerName(r.Context()), Operator: callerRole(r.Context()) == RoleFull}
 }
 
 func (s *Server) listClaims(w http.ResponseWriter, r *http.Request) {

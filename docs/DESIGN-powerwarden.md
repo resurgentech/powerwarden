@@ -532,14 +532,30 @@ key with its default. Unknown keys are a startup error. Durations use Go syntax.
 | `ui.proxy.secret_file`, `secret_header`, `user_header` | none | Required with `ui.auth: proxy`, an error otherwise. Secret file: one secret per line, at least 16 characters, mode 0600 (startup fails if any group or other permission bit is set). Two distinct header names |
 | `ui.path_prefix` | `""` | Serve the UI under `<prefix>/ui` (for a reverse proxy that keeps the prefix). Empty, or `/segment[/segment...]` with no trailing `/` and segments of letters, digits, `. _ ~ -`; no `..` |
 | `personal_keys.request_url` | none (off) | Optional. Absolute `http`/`https` URL (host required, no user information, no fragment) advertised by `GET /v1/key-request`; unset, that route is 404 |
+| `personal_keys.url` | `""` (off) | Optional. The key-list URL: an absolute `http`/`https` URL (host required, no user information, no fragment). `""` turns the key list off: nothing pulls and nothing changes. A plain-`http` URL to a host that is not loopback is refused unless `allow_insecure_http` is true |
+| `personal_keys.token_file` | `""` | Optional. The pull token, read by keyclient at start and before every pull |
+| `personal_keys.cache_file` | none | **Required when `url` is set**; no default. Where the last good list is kept |
+| `personal_keys.refresh` | `1m` | Time between pulls; must be greater than zero |
+| `personal_keys.refresh_on_miss` | `5s` | Least time between pulls started by an unknown key; `0s` turns refresh on miss off; not negative |
+| `personal_keys.allow_insecure_http` | `false` | Allows a plain-`http` `url` to a host that is not loopback. Applies only to `url`: `request_url` is advertised, never fetched |
 | `host_tags` | none | Optional seed: `hostname: [tags]`, applied only to hosts with no stored tags |
+
+The key-list settings are checked with the rest: a sub-key present in the file while `url` is empty is an error
+(`personal_keys.<key> is set but personal_keys.url is empty`; presence counts, so `refresh: 1m` alone is an error),
+and `cache_file` is required once `url` is set. Anything keyclient's `keylist.New` refuses (a plain-`http` URL
+without `allow_insecure_http`, an unreadable `token_file`) stops the start and `check-config` with
+`personal_keys: <keyclient's error>`; for the plain-`http` rule the message ends
+`; set personal_keys.allow_insecure_http: true only for a network path you trust`. A URL is printed redacted.
 
 `powerwarden check-config [--config PATH] [--tokens-file PATH]` loads the config, then the tokens file with the
 loader `serve` uses; `--tokens-file` overrides `tokens_file` so a rendered pair can be checked off-box. A missing or
 invalid tokens file exits 1. Success prints `ok: listen=… powermaster=… tokens=N (full=a, agent=b)`; token values
 are never printed. With `ui.auth: proxy` it also loads the proxy secret file with the loader `serve` uses (a
 group- or other-accessible, empty or short-line file exits 1) and appends ` ui=proxy`; no secret is printed. With `personal_keys.request_url` set it appends ` key_request=on` (after `ui=proxy` if both). It does not load the
-htpasswd file.
+htpasswd file. With `personal_keys.url` set it builds the key-list source with the same helper and options as
+`serve` (never starting it, so it sends nothing and writes no cache file), fails with the message above on a refusal,
+and appends ` key_list=on` after ` key_request=on`, then ` key_list_insecure_http=on` when `allow_insecure_http` is
+true and the URL is plain `http`. It never prints a token, a hash or the pull token.
 
 Secrets are never in `config.yaml`: the tokens, the powermaster token and the htpasswd are separate files.
 
@@ -634,8 +650,37 @@ know the host. An empty list stores "no capability": the host is never powered o
 - `GET /v1/healthz`: no auth; 200 when serving with SQLite open, else 503; includes
   `powermaster: connected | unreachable`. No inventory.
 - `GET /v1/stats`: `last_reconcile_at`, `demands_open`, `demands_covered`, `demands_uncovered`, `workers_fresh`,
-  `hosts_by_policy`, `last_power_request`.
+  `hosts_by_policy`, `last_power_request`, and `personal_keys` when the key list is on (see Pulled key list).
 - `GET /v1/key-request`: no auth; see Key request discovery below.
+
+### Pulled key list
+
+With `personal_keys.url` set, people's personal keys come from a key list pulled by keyclient's
+`keylist.Source`. This doc restates only this daemon's settings (the table above); the contract is keyclient's
+[`docs/CONTRACT.md`](https://github.com/resurgentech/keyclient/blob/main/docs/CONTRACT.md) and the behaviour
+follows its [`docs/STATES.md`](https://github.com/resurgentech/keyclient/blob/main/docs/STATES.md). Neither is
+copied here.
+
+- **Bearer order.** (1) `tokens.yaml`, as before. (2) On a miss, with a non-empty token, the key list:
+  `Source.LookupOrRefresh` (refresh on miss). A throttled or failed lookup is the usual `401` at once. The
+  route-to-role table is enforced for a pulled role exactly as for a file role: a pulled `agent` on a `full` route
+  gets the `403`.
+- **Roles and names.** The accepted roles are `full` and `agent` (`keylist.AcceptRoles`); an entry with another role
+  is skipped. An entry whose name is the name of a `tokens.yaml` token, or whose SHA-256 is the hash of one, is
+  skipped (every token in the file, workers included): the local token keeps its own role. A pulled key's name is
+  the caller name, so it is the claim owner; a pulled `agent` is not an operator.
+- **Lifecycle.** `keylist.New` runs in `build` right after the tokens load; an error stops the start. `Start(ctx)`
+  runs with the serve context after the handler is built and before the listener starts, so a usable cache serves
+  from the first request and the service starts even when the provider is down. After `Start` one info line is
+  logged: `personal_keys: list origin=<origin> entries=<n> age=<age>`. keyclient logs pull failures and recoveries
+  itself; the daemon adds nothing.
+- **Health.** `GET /v1/healthz` is unchanged: a provider that is down does not make the service unhealthy, it keeps
+  serving the cached list. `GET /v1/stats` (authenticated) gains `personal_keys`, present only when `url` is set:
+  `origin` (`none`, `cache` or `provider`), `entries`, `cache_failing`, and when known `age_seconds` and `list_time`
+  (not when origin is `none`), `last_success`, `last_error` (non-printable characters replaced by `?`, at most 200
+  characters). No hash, token or URL is included.
+- **Tokens do not reload.** `tokens.yaml` is read once at start and there is no reload path, so the `Accept` check
+  is stable for the life of the process (keyclient's K-16). If this daemon ever reloads its tokens while running, it must build a new `Source`.
 
 ### Key request discovery
 

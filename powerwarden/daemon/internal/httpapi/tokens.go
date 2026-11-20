@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"regexp"
 
+	"github.com/resurgentech/keyclient/keylist"
 	"gopkg.in/yaml.v3"
 )
 
@@ -139,6 +141,29 @@ func (t *Tokens) Name(token string) (string, bool) {
 
 // Role returns the role of the named token ("" if there is no such token).
 func (t *Tokens) Role(name string) string { return t.roles[name] }
+
+// PulledRoles are the roles a pulled key list entry may carry (SR-4): the
+// roles this daemon knows.
+var PulledRoles = []string{RoleFull, RoleAgent}
+
+// TakenLocally reports whether a pulled entry clashes with a loaded token: its
+// name is the name of any token, or its SHA-256 (lowercase hex; a value that
+// does not decode is not taken) equals the hash of any token. It reads only the
+// maps built at load time, so it answers the same for the life of the process
+// (keylist.Options.Accept requires that).
+func (t *Tokens) TakenLocally(e keylist.Entry) bool {
+	if _, ok := t.roles[e.Name]; ok {
+		return true
+	}
+	b, err := hex.DecodeString(e.SHA256)
+	if err != nil || len(b) != sha256.Size {
+		return false
+	}
+	var h [sha256.Size]byte
+	copy(h[:], b)
+	_, ok := t.byHash[h]
+	return ok
+}
 
 // routeRoles is the one route-to-role table: the least role that may call each
 // route pattern. Register panics on a route missing here, and a test walks every

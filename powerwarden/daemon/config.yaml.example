@@ -79,6 +79,15 @@ ui:
 # with a host, no user information and no fragment. Unset: that route is 404.
 # personal_keys:
 #   request_url: https://keys.example.com/v1/services/powerwarden/requests
+#   # The key list that people's personal keys are pulled from (keyclient's
+#   # docs/CONTRACT.md). "" (the default) turns it off. Every key below is an
+#   # error while url is empty; cache_file is required once url is set.
+#   url: https://keys.example.com/v1/lists/powerwarden
+#   token_file: /etc/powerwarden/keylist.token   # default "": the pull token, optional
+#   cache_file: /var/lib/powerwarden/keys.cache  # no default: where the last good list is kept
+#   refresh: 1m                                  # default 1m: time between pulls, greater than zero
+#   refresh_on_miss: 5s                          # default 5s: least time between pulls an unknown key starts; 0s turns it off
+#   allow_insecure_http: false                   # default false: allow a plain-http url to a host that is not loopback
 
 # Optional seed for host capability tags (what a host can run when powered
 # on). Tags live in powerwarden's database and are edited with

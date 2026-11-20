@@ -43,9 +43,10 @@ just build                # binary at cmd/powerwarden/powerwarden
 - `host_tags` optionally seeds host capability tags; after that they live in the
   database and are edited through the API or UI.
 
-`check-config` loads the config, then the tokens file with the loader `serve` uses. `--tokens-file` overrides `tokens_file`, so a rendered config and tokens pair can be checked off-box. A missing or invalid tokens file exits 1. On success it prints `ok: listen=… powermaster=… tokens=N (full=a, agent=b)`. It never prints a token value. With `personal_keys.request_url` set it appends ` key_request=on`.
+`check-config` loads the config, then the tokens file with the loader `serve` uses. `--tokens-file` overrides `tokens_file`, so a rendered config and tokens pair can be checked off-box. A missing or invalid tokens file exits 1. On success it prints `ok: listen=… powermaster=… tokens=N (full=a, agent=b)`. It never prints a token value. With `personal_keys.request_url` set it appends ` key_request=on`. With `personal_keys.url` set it builds the key-list source as `serve` does (it never starts it and sends nothing), fails with `personal_keys: <error>` on a refusal, and appends ` key_list=on`, then ` key_list_insecure_http=on` when `allow_insecure_http` is true and the URL is plain `http`.
 
 - `personal_keys.request_url` is optional (off by default): an absolute `http` or `https` URL where a person requests a key for this service, advertised by the unauthenticated `GET /v1/key-request`. Unset, that route is 404.
+- `personal_keys.url` is optional (off by default): the key-list URL that people's personal keys are pulled from (keyclient's `docs/CONTRACT.md`). Its sub-keys are an error without it: `token_file` (optional pull token), `cache_file` (**required** when `url` is set, no default), `refresh` (default `1m`, greater than zero), `refresh_on_miss` (default `5s`; `0s` turns it off) and `allow_insecure_http` (default `false`; lets a plain-`http` `url` point at a host that is not loopback). A pulled key may be `full` or `agent`, and its name is the claim owner. `GET /v1/stats` gains `personal_keys` when `url` is set. See `docs/DESIGN-powerwarden.md`.
 
 `serve` needs these files:
 
