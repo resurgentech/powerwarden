@@ -21,8 +21,8 @@ import (
 	pw "github.com/resurgentech/powerwarden/powerwarden/api"
 )
 
-// Version is pwrwrdn's version: the MCP implementation version and, as
-// pwrwrdn/<Version>, the Tool of a key request.
+// Version is pwrwrdn's version; as pwrwrdn/<Version> it is the Tool of a key
+// request.
 const Version = "0.2.0"
 
 const (
@@ -166,8 +166,7 @@ func randHex(n int) string {
 // NewSessionID returns s-<12 hex>.
 func NewSessionID() string { return "s-" + randHex(6) }
 
-// NewClaimID returns <prefix>-<12 hex>; the prefix is "mcp" for the MCP
-// server and "pwrwrdn" for the CLI.
+// NewClaimID returns <prefix>-<12 hex>; pwrwrdn's prefix is "pwrwrdn".
 func NewClaimID(prefix string) string { return prefix + "-" + randHex(6) }
 
 // Refusal is a non-success answer from powerwarden.

@@ -787,37 +787,6 @@ func TestT11_SecondProcessResumesTheSameRequest(t *testing.T) {
 	}
 }
 
-// T-22: while an MCP process polls (holding the lock), a CLI process gets the
-// same request at once from the pending file; nothing is filed twice.
-func TestT22_MCPProcessThenCLIProcessShareTheRequest(t *testing.T) {
-	k := newKeyRig(t, false)
-	m := startMCPProcess(t, k)
-	isErr, text := m.call(t, "list_hosts", nil)
-	if !isErr || !strings.HasPrefix(text, "No powerwarden key on this machine yet. "+approvePrefix) {
-		t.Fatalf("%v %q", isErr, text)
-	}
-	notice := strings.TrimSuffix(strings.TrimPrefix(text, "No powerwarden key on this machine yet. "), " Then retry.")
-	e, rc := k.runProcess("hosts")
-	if rc != 75 {
-		t.Fatalf("rc=%d %s", rc, e)
-	}
-	lines := strings.Split(strings.TrimSpace(e), "\n")
-	if len(lines) != 2 || lines[1] != pendingLine {
-		t.Fatalf("%q", lines)
-	}
-	u1, c1 := approveURLAndCode(t, notice)
-	u2, c2 := approveURLAndCode(t, lines[0])
-	if u1 != u2 || c1 != c2 {
-		t.Fatalf("notices differ:\n%s\n%s", notice, lines[0])
-	}
-	if n := len(k.p.Filed()); n != 1 {
-		t.Fatalf("filed %d", n)
-	}
-	if strings.Contains(text, k.p.PollSecret()) || strings.Contains(e, k.p.PollSecret()) {
-		t.Fatal("poll secret leaked")
-	}
-}
-
 // With no $USER the name hint is the short host alone, never "@host".
 func TestNameHintWithoutUserCLI(t *testing.T) {
 	k := newKeyRig(t, false)

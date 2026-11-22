@@ -1,12 +1,9 @@
 # pwrwrdn
 
-`pwrwrdn` is the agent-side CLI and MCP server for powerwarden. It lets a
-person, an AI agent or a script claim a lab host, power it, and give it back.
-
-One binary:
-
-- `pwrwrdn mcp` is an MCP server on stdio. One process per agent session.
-- the other subcommands are a plain CLI for scripts and for humans.
+`pwrwrdn` is the CLI for powerwarden's claim API. It lets a person, an AI agent
+or a script claim a lab host, power it, and give it back. The CLI is the
+agent-facing tool here: agents run it with `--json` (see [Commands](#commands)).
+An MCP front end, if you want one, is outside this repo.
 
 Claims, modes and the server's rules are described in
 [`docs/DESIGN-powerwarden.md`](../../docs/DESIGN-powerwarden.md#claims);
@@ -78,8 +75,8 @@ it says it cannot check the request without one (exit 1).
 The contract and state machines are in the keyclient repo's `docs/CONTRACT.md`
 and `docs/STATES.md`.
 
-Flags (every command that loads a token, and `key request`; `mcp` takes the
-first two): `--key-request-url URL` (env `POWERWARDEN_KEY_REQUEST_URL`; the flag
+Flags (every command that loads a token, and `key request`):
+`--key-request-url URL` (env `POWERWARDEN_KEY_REQUEST_URL`; the flag
 wins), `--role ROLE` (default `agent`), `--no-key-request`.
 
 ### Deprecated: setup-token
@@ -111,8 +108,7 @@ OpenBao; you fetch it once per machine.
    tells you what to ask the admin for. `pwrwrdn` refuses to use a token file
    that group or other can read.
 
-The server URL has no built-in default. Every subcommand (including `mcp`)
-takes it from, in order: `--url`, `POWERWARDEN_URL`, then the one-line file
+The server URL has no built-in default. Every subcommand takes it from, in order: `--url`, `POWERWARDEN_URL`, then the one-line file
 `~/.config/powerwarden/url` (next to the token; whitespace is trimmed):
 
 ```bash
@@ -129,41 +125,6 @@ Other config, optional: `POWERWARDEN_CA_FILE` (an extra CA for that server),
 `POWERWARDEN_TOKEN_FILE` (or `--token-file`) instead of
 `~/.config/powerwarden/token`.
 
-## MCP
-
-Add this to `.mcp.json`. There is no token and no env in it; the server reads
-the token file. With no token file the server still starts. Until a key lands,
-every tool call returns an error result: `No powerwarden key on this machine
-yet. ` followed by the approval line (address and code to check) and ` Then
-retry.` Approve the request, then call a tool again. If the request is denied,
-expires or is refused, the next call says so, and the call after that files a
-new request. If another `pwrwrdn` is filing the request, the result is `another
-pwrwrdn is handling the key request; retry shortly`. Nothing but protocol is
-written to stdout, and the address is never opened.
-
-```json
-{
-  "mcpServers": {
-    "powerwarden": { "command": "pwrwrdn", "args": ["mcp"] }
-  }
-}
-```
-
-Tools:
-
-| tool | what it does |
-|------|--------------|
-| `list_hosts` | hosts with explicit tags, name tags, power state, `jobs_blocked`, claims; optional `tags` filter |
-| `claim_host` | claim one host by tags (`tags`, `purpose`, `max_hours`, `mode`); returns at once, never waits for a boot |
-| `wait_for_claim` | block about 60s until the claim changes; call until `state` is `ready` |
-| `extend_claim` | set the hard cap to now plus `hours` |
-| `release_host` | release a claim, and dismiss a lost-claim warning |
-| `power_host` | `powerup`, `powerdown`, `powercut` or `reboot` for the claim's host |
-| `my_claims` | claims owned by your token, from any session |
-
-The MCP server renews the leases of the claims it made, releases them when the
-agent session ends, and never makes a detached claim.
-
 ## Commands
 
 All of them take `--token-file`. A claim id made by the CLI looks like
@@ -175,14 +136,14 @@ codes:
 
 - `pwrwrdn --help`, `-h`, and `pwrwrdn <command> --help` print to stdout and
   exit 0. The top-level help has "Agent tips".
-- `--json` on every command but `mcp` prints one JSON object on stdout:
+- `--json` on every command prints one JSON object on stdout:
   `claim` and `extend` print the API's `Claim`, `hosts` prints `{"hosts":[...]}`,
   `claims` prints `{"claims":[...]}`. With `--json` an error is one object on
   stderr, `{"error":{"code":"...","message":"..."}}`; a pending key request is
   code `key_pending`, exit 75.
 - `run --json` keeps stdout for the command. It writes `{"claim_id","host","mode"}`
   on stderr before the command starts and `{"claim_id","exit_code"}` after it ends.
-- `mcp` is interactive (a server): `mcp --json` exits 2.
+- No command is interactive.
 - Exit codes: `0` success, `1` error, `2` usage (a bad command, flag or
   argument), `75` try again later; `run` exits with its command's code.
 
@@ -205,7 +166,7 @@ ends, and exits with the command's exit code (128+N if it died of signal N).
 - SIGTERM, SIGINT and SIGHUP are forwarded to the command; the claim is
   released after it exits. If the claim is lost (renewal refused), a warning
   goes to stderr.
-- It does not need MCP, so a job can use it, for example an Ansible task that
+- It needs nothing but the CLI, so a job can use it, for example an Ansible task that
   updates software and reboots the host with `pwrwrdn power reboot --wait-on 10m`
   inside the `run`.
 
@@ -258,14 +219,12 @@ particular machine, claim by its name tag: `--tags host01`.
 ## Lifetimes
 
 - Lease: 15 minutes. A leased claim not renewed in that time is dropped.
-- Renewal: every 5 minutes (a third of the lease), by `pwrwrdn run` and
-  `pwrwrdn mcp`.
+- Renewal: every 5 minutes (a third of the lease), by `pwrwrdn run`.
 - Hard cap: 8 hours by default, 15 minutes to 72 hours at the server. Only
   `extend` moves it; renewing does not.
-- Release on exit: `run` releases when the command ends or on a signal; `mcp`
-  releases when the agent session ends.
+- Release on exit: `run` releases when the command ends or on a signal.
 - Detached claims (`pwrwrdn claim`, and the web UI) have no lease: they last
-  until the cap or a release. `mcp` and `run` never make one.
+  until the cap or a release. `run` never makes one.
 
 ## Develop
 

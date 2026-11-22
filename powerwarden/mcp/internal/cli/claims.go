@@ -95,7 +95,7 @@ func HostOn(c pw.Claim) bool {
 // CreateDetached makes a detached claim: no liveness lease, so it lives until
 // its hard cap or a release. It is a one-shot PUT that never registers with a
 // keeper (nothing renews or releases it); keeper.Spec has no way to ask for
-// detached, which keeps the MCP server and `pwrwrdn run` unable to send it.
+// detached, which keeps `pwrwrdn run` unable to send it.
 // Only spec.Tags, Purpose, Mode and MaxSeconds are used.
 func CreateDetached(ctx context.Context, api client.API, prefix, session string, s keeper.Spec) (*pw.Claim, error) {
 	mode := s.Mode

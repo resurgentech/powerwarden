@@ -75,7 +75,8 @@ The conformance test is `powerwarden/mcp/cmd/pwrwrdn/tree_test.go`. It walks the
 | `key status` | `{"token_file","token","pending_file","pending"}`; `token` is `present` or `absent`; `pending` is `{"state"}`, `state` `none`, `pending`, `expired` or `foreign`; with `pending`, also `service`, `code` and `expires_at` |
 | `setup-token` (deprecated) | `{"deprecated":true,"name","token_file"}`; with `--url`, also `url` and `url_file` |
 | `run` | a wrapper: see below |
-| `mcp` | interactive (an MCP server on stdio): no `--json`, exit `2` |
+
+No `pwrwrdn` command is interactive; every one takes `--json`.
 
 `run` hands stdout to the command it runs. With `--json` it writes one object on stderr,
 `{"claim_id","host","mode"}`, before the command starts. When the command ends it writes
@@ -89,7 +90,7 @@ The `code` of the error object:
 
 | Code | Exit | When |
 |---|---|---|
-| `usage` | `2` | a bad command, flag or argument; `--json` on `mcp` |
+| `usage` | `2` | a bad command, flag or argument |
 | `key_pending` | `75` | a key request was filed and waits for approval; the message holds the approval address and the code to check |
 | `key_busy` | `75` | another `pwrwrdn` is handling the key request for the same token file |
 | `key_denied`, `key_expired`, `key_consumed`, `key_unauthorized`, `key_provider` | `1` | the key request ended without a key |

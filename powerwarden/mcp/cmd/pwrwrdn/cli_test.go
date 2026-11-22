@@ -553,7 +553,7 @@ func TestURLFlagBeatsEnvBeatsFile(t *testing.T) {
 }
 
 func TestURLNotSetNamesAllThreeSources(t *testing.T) {
-	for _, args := range [][]string{{"hosts"}, {"claims"}, {"release", "x"}, {"mcp"}} {
+	for _, args := range [][]string{{"hosts"}, {"claims"}, {"release", "x"}} {
 		r := newRig(t)
 		delete(r.getenv, "POWERWARDEN_URL")
 		if rc := r.do(args...); rc == 0 ||

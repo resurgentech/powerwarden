@@ -1,6 +1,6 @@
 // Package keeper owns the claims one pwrwrdn process created: it renews each
 // leased claim at lease/3, notices when one is lost, and releases them all on
-// the way out. The MCP server and `pwrwrdn run` share it.
+// the way out. `pwrwrdn run` uses it.
 package keeper
 
 import (
@@ -18,7 +18,7 @@ const defaultLease = 15 * time.Minute
 
 // Options configures a Keeper.
 type Options struct {
-	Prefix  string // claim id prefix: "mcp" or "pwrwrdn"
+	Prefix  string // claim id prefix: "pwrwrdn"
 	Session string // sent as `session` on every PUT
 	Clock   Clock  // nil means the wall clock
 }

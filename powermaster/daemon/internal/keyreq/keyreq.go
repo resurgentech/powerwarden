@@ -1,7 +1,7 @@
 // Package keyreq maps the outcomes of a first-use key request (keyclient's
 // request.Ensure) to what a command line tool prints and the exit code it
-// returns. The table follows SR-9 of the key-request plan; the powerwarden MCP
-// tool keeps its own copy of the same strings, so the two stay independent.
+// returns. The table follows SR-9 of the key-request plan; pwrwrdn keeps its
+// own copy of the same strings, so the two stay independent.
 package keyreq
 
 import (

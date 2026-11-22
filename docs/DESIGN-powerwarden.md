@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | Implemented |
-| Code | `powerwarden/daemon` (daemon, web UI), `powerwarden/api` (generated client), `powerwarden/mcp` (`pwrwrdn` CLI and MCP server) |
+| Code | `powerwarden/daemon` (daemon, web UI), `powerwarden/api` (generated client), `powerwarden/mcp` (the `pwrwrdn` CLI) |
 | Spec | `specs/openapi/powerwarden.yml` (OpenAPI 3.0.3) |
 | Related | [`DESIGN-powermaster.md`](DESIGN-powermaster.md) (power control) |
 
@@ -325,8 +325,8 @@ creating PUT; a renew from another session of the same owner is accepted. Anothe
 A re-PUT renews the lease and must restate `tags`, `mode` and `detached` (a difference is 409 `conflict`).
 
 **Detached claims.** `detached: true` means no liveness lease (`lease_until` null). The claim lives until
-`expires_at` or a release. The UI create form and `pwrwrdn claim` make them; the MCP server and `pwrwrdn run` never
-do. The restart grace does not apply.
+`expires_at` or a release. The UI create form and `pwrwrdn claim` make them; `pwrwrdn run` never
+does. The restart grace does not apply.
 
 **Lapse.** A claim lapses when `expires_at <= now`, or `lease_until <= now` for a non-detached claim. A lapsed claim
 binds nothing, holds nothing and is hidden unless `include_expired`; it is swept `claim_sweep_after` (24h) after it
@@ -379,7 +379,7 @@ A failed claim is final and holds nothing:
   whichever comes first.
 - To get another host, release the claim and claim again. A tag-class claim made again skips the cooling host.
 
-`pwrwrdn` (MCP keeper and `run`) treats 410 `claim_failed` on a renew as a lost claim, with the detail as the reason.
+`pwrwrdn run` (its keeper) treats 410 `claim_failed` on a renew as a lost claim, with the detail as the reason.
 
 **Lifecycle and ready.** One function, `store.BoundState`, decides the state of a bound claim:
 
@@ -713,7 +713,7 @@ to `pwrwrdn`. The code is in `internal/keyreq`.
 | `Tool` | `pwrwrdn/<version>` |
 | `AllowInsecureHTTP` | never set |
 
-The notice is `Notice.String()`, on one line, on stderr (in the tool result under MCP). The approval URL is never
+The notice is `Notice.String()`, on one line, on stderr. The approval URL is never
 opened or passed to a shell. With a terminal on stderr the CLI uses `Wait: true`; without one, or with
 `--no-key-request`, `Wait: false`. `pwrwrdn` never blocks a non-interactive caller on a person.
 
@@ -728,15 +728,7 @@ opened or passed to a shell. With a terminal on stderr the CLI uses `Wait: true`
 
 These lines are printed without the `pwrwrdn: ` prefix. Any other error uses the usual `pwrwrdn: <error>` line.
 
-**MCP.** The server starts without a key. Each tool call goes through a gate: it runs `Ensure` with `Wait: false`
-(context of the server, not of the call) and, until a key lands, returns an MCP error result
-`No powerwarden key on this machine yet. <notice> Then retry.`, built from the `*ErrPending` and reused for later
-calls with no second filing. `ErrBusy` gives `another pwrwrdn is handling the key request; retry shortly`. When
-`Done()` closes, the next call takes `Err()`: a final error is returned in the CLI's words (joined with a newline)
-and the call after it files a new request; success builds the API client and the keeper and serves normally.
-
-**Retry once.** A key received in this flow (`Result.Name != ""`, or the key that landed after an MCP pending
-request) arms a transport that, if the very first service call gets `401`, waits 5 seconds and sends that call once
+**Retry once.** A key received in this flow (`Result.Name != ""`) arms a transport that, if the very first service call gets `401`, waits 5 seconds and sends that call once
 more (the body is replayed with `GetBody`). It never retries for a key that was already on disk, and never twice.
 
 `pwrwrdn key status` is read only (no network, no lock): the token file present or absent, and the pending

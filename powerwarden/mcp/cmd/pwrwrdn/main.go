@@ -1,9 +1,9 @@
-// Command pwrwrdn is the powerwarden agent CLI: the `mcp` server plus the
+// Command pwrwrdn is the powerwarden CLI for people, agents and scripts: the
 // key, setup-token, run, claim, release, extend, power, hosts and claims commands.
 //
 // It follows the command-line convention in docs/CLI.md: --json on every
-// non-interactive command, help on stdout with exit 0, and the exit codes 0,
-// 1, 2 and 75.
+// command (none is interactive), help on stdout with exit 0, and the exit
+// codes 0, 1, 2 and 75.
 package main
 
 import (
@@ -94,23 +94,12 @@ type command struct {
 	description string   // lines, printed indented
 	examples    []string // full command lines
 	tip         string   // the command's own agent tip, if any
-	interactive bool     // a server: no --json
 	run         func(ctx context.Context, e env) error
 	subs        map[string]*command
 }
 
 // commands is the subcommand table; adding one is one entry, with its help.
 var commands = map[string]*command{
-	"mcp": {
-		summary: "serve MCP tools on stdio, one process per agent session",
-		usage:   "[flags]",
-		description: "An MCP server on stdin/stdout for one agent session. It renews the leases of the claims it\n" +
-			"makes and releases them when the session ends. It starts without a key and asks for one on the\n" +
-			"first tool call. Interactive (a server): it takes no --json.",
-		examples:    []string{"pwrwrdn mcp", "pwrwrdn mcp --url https://powerwarden.example.com"},
-		interactive: true,
-		run:         runMCP,
-	},
 	"setup-token": {
 		summary: "deprecated: use pwrwrdn key request. Fetch your user token from OpenBao into ~/.config/powerwarden/token",
 		usage:   "[--name NAME] [--force] [flags]",
@@ -238,11 +227,6 @@ func lookup(path []string) *command {
 	return c
 }
 
-func isInteractive(path []string) bool {
-	c := lookup(path)
-	return c != nil && c.interactive
-}
-
 func sortedKeys(m map[string]*command) []string {
 	names := make([]string, 0, len(m))
 	for n := range m {
@@ -262,7 +246,7 @@ Description:
 
 Commands:
 %s
-Flags (every command; mcp takes no --json):
+Flags (every command):
   --json              print one JSON object on stdout; an error is one object on stderr,
                       {"error":{"code":"...","message":"..."}}
   --url URL           powerwarden base URL (default $POWERWARDEN_URL, else ~/.config/powerwarden/url)
@@ -290,7 +274,7 @@ Agent tips:
   - Keys: with no key on this machine, run pwrwrdn key request in a terminal and have a person
     approve it at the address shown. Without a terminal a command files the request and exits 75
     (error code key_pending): approve it, then run the command again. pwrwrdn key status shows the state.
-  - Interactive: pwrwrdn mcp is interactive (an MCP server on stdio): no --json, exit 2 if given.
+  - Interactive: no pwrwrdn command is interactive; every one takes --json.
   - Durations are 90m, 2h, 1d, 1d12h. A claim id made by pwrwrdn looks like pwrwrdn-<12 hex>.
 `
 
@@ -337,41 +321,6 @@ func printHelp(w io.Writer, path string, c *command, fs *flag.FlagSet) {
 }
 
 func isHelpFlag(a string) bool { return a == "-h" || a == "--help" || a == "-help" }
-
-func hasHelpFlag(args []string) bool {
-	for _, a := range args {
-		if a == "--" {
-			return false
-		}
-		if isHelpFlag(a) {
-			return true
-		}
-	}
-	return false
-}
-
-// interactiveHelp prints the help of an interactive command, which parses its
-// own flags (the mcp server): it runs the command with the help flag and its
-// stderr captured, where the flag package writes "Usage of <name>:" and the
-// flag defaults, and uses those defaults as the Flags section.
-func interactiveHelp(ctx context.Context, e env) int {
-	var buf strings.Builder
-	he := e
-	he.Stderr = &buf
-	err := e.cmd.run(ctx, he)
-	if !errors.Is(err, flag.ErrHelp) {
-		io.WriteString(e.Stderr, buf.String())
-		if err == nil {
-			return 0
-		}
-		return report(e, err)
-	}
-	var sb strings.Builder
-	printHelp(&sb, e.path, e.cmd, nil)
-	_, defaults, _ := strings.Cut(buf.String(), "\n") // drop "Usage of <name>:"
-	fmt.Fprint(e.Stdout, strings.Replace(sb.String(), "\nFlags:\n", "\nFlags:\n"+defaults, 1))
-	return 0
-}
 
 // wantsJSON scans the arguments before any `--` for a true --json, so errors
 // found before or while parsing flags can still be JSON.
@@ -456,13 +405,7 @@ func dispatch(ctx context.Context, e env) int {
 		e.Args = e.Args[1:]
 		c = s
 	}
-	if c.interactive && js {
-		return report(e, usageErr("interactive command; no --json"))
-	}
 	e.cmd, e.path = c, path
-	if c.interactive && hasHelpFlag(e.Args) {
-		return interactiveHelp(ctx, e)
-	}
 	if err := c.run(ctx, e); err != nil {
 		return report(e, err)
 	}

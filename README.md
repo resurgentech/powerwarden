@@ -9,7 +9,8 @@ Two small services that switch a fleet of lab hosts on and off, plus a client fo
   some tags), workers report liveness, and people or agents take *claims* on hosts. powerwarden reconciles
   those against powermaster's host view and asks powermaster to power hosts up, down or off. It holds no
   hardware credentials, and serves its own API and a web UI.
-- **pwrwrdn** is the CLI and MCP server for powerwarden's claim API: claim a host, power it, give it back.
+- **pwrwrdn** is the CLI for powerwarden's claim API: claim a host, power it, give it back. It is the
+  agent-facing tool here (agents run it with `--json`); an MCP front end is outside this repo.
 
 ```
 scheduler / workers ──demands, liveness──▶ powerwarden ──power commands──▶ powermaster ──IPMI, PDU, SSH──▶ hosts
@@ -29,7 +30,7 @@ Design: [`docs/DESIGN-powermaster.md`](docs/DESIGN-powermaster.md),
 | `powermaster/daemon` | `github.com/resurgentech/powerwarden/powermaster/daemon` | The powermaster service and its TUI ([README](powermaster/daemon/README.md)) |
 | `powerwarden/api` | `github.com/resurgentech/powerwarden/powerwarden/api` | Generated Go client and types (`package powerwardenapi`) |
 | `powerwarden/daemon` | `github.com/resurgentech/powerwarden/powerwarden/daemon` | The powerwarden service and web UI ([README](powerwarden/daemon/README.md)) |
-| `powerwarden/mcp` | `github.com/resurgentech/powerwarden/powerwarden/mcp` | `pwrwrdn` CLI and MCP server ([README](powerwarden/mcp/README.md)) |
+| `powerwarden/mcp` | `github.com/resurgentech/powerwarden/powerwarden/mcp` | The `pwrwrdn` CLI ([README](powerwarden/mcp/README.md)) |
 | `docs/` | | Design docs, work log |
 | `go.work` | | Joins the five modules for in-repo work |
 

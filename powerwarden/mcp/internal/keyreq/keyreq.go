@@ -1,8 +1,8 @@
 // Package keyreq is what pwrwrdn adds to keyclient's request flow (SR-9 of the
 // plan; keyclient's docs/CONTRACT.md and docs/STATES.md define the flow
 // itself): the request options, the table that turns each outcome into the
-// words and exit code SR-9 gives it, the MCP texts and gate, the retry-once
-// transport for a just-issued key. `pwrwrdn key status` reads the pending
+// words and exit code SR-9 gives it, and the retry-once transport for a
+// just-issued key. `pwrwrdn key status` reads the pending
 // request through keyclient's request.Pending; nothing here knows the pending
 // file's format.
 //
@@ -33,13 +33,8 @@ const (
 	PendingLine = "key request pending; run this again after approving"
 	// NewRequestLine follows keyclient's message for an expired or consumed request.
 	NewRequestLine = "run this again to file a new request"
-	// MCPBusyText is the tool result when another pwrwrdn files the request.
-	MCPBusyText = "another pwrwrdn is handling the key request; retry shortly"
 	// DeniedLine is the message for a denied request.
 	DeniedLine = "key request denied"
-
-	mcpNoKey = "No powerwarden key on this machine yet. "
-	mcpRetry = " Then retry."
 )
 
 // Tool is the Tool of every key request: pwrwrdn/<version>.
@@ -115,7 +110,3 @@ func Classify(err error, tokenPath string) (lines []string, code int, ok bool) {
 	}
 	return nil, 0, false
 }
-
-// PendingMCPText is the tool result while no key has landed: the notice, which
-// holds the approval address and the code, never a poll secret.
-func PendingMCPText(n request.Notice) string { return mcpNoKey + n.String() + mcpRetry }

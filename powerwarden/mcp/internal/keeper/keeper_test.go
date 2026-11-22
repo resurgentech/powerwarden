@@ -23,7 +23,7 @@ func setup(t *testing.T) (*pwfake.Fake, *keeper.Keeper, *keeper.FakeClock) {
 		t.Fatal(err)
 	}
 	clk := keeper.NewFakeClock()
-	k := keeper.New(api, keeper.Options{Prefix: "mcp", Session: "s-abc123abc123", Clock: clk})
+	k := keeper.New(api, keeper.Options{Prefix: "pwrwrdn", Session: "s-abc123abc123", Clock: clk})
 	t.Cleanup(k.Close)
 	return f, k, clk
 }
@@ -46,7 +46,7 @@ func TestCreateSendsSessionAndNoDetached(t *testing.T) {
 	if err != nil || c == nil {
 		t.Fatalf("create: %v %v", c, err)
 	}
-	if !strings.HasPrefix(c.Id, "mcp-") {
+	if !strings.HasPrefix(c.Id, "pwrwrdn-") {
 		t.Fatalf("id %q lacks prefix", c.Id)
 	}
 	r, ok := f.Last("PUT", "/v1/claims/"+c.Id)

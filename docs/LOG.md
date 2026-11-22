@@ -149,3 +149,18 @@ are appended, never edited in; a hook refuses rewrites.
 - `internal/cli` gains the JSON form beside the tables. A test walks the command table: every command's help,
   `--json` on every non-interactive command, the error object and the exit codes. README updated.
 - Commits: the commit on `main` that carries this entry.
+
+## 2026-11-22 — pwrwrdn: the MCP server is removed
+
+- `pwrwrdn mcp` is gone: it is an unknown subcommand (exit 2; with `--json` the `usage` error object). The CLI is
+  the agent-facing tool; an MCP front end is outside this repo. Removed: `cmd/pwrwrdn/mcp.go`,
+  `internal/mcpserver`, the key-request gate (`internal/keyreq/gate.go`) and its texts, and their tests (the T-22
+  test went with them; T-11 and the CLI busy test still cover two processes sharing one request).
+- From the previous entry: the `mcp` row of the command table, the interactive-command handling in dispatch and help
+  (no `pwrwrdn` command is interactive now, so `--json` is on every one), and the `mcp` rows of `docs/CLI.md`. The
+  top-level agent tip says no command is interactive. `--json`, the help and the tree test stay.
+- `--no-key-request` is registered unconditionally (only the server lacked it). `internal/keeper` stays for `run`.
+- `go mod tidy` drops `github.com/modelcontextprotocol/go-sdk` and its indirect requirements.
+- README, `AGENTS.md`, `docs/DESIGN-powerwarden.md`, the module README and code comments updated; this log keeps
+  its history. The module directory and path (`powerwarden/mcp`) are unchanged.
+- Commits: the commit on `main` that carries this entry.

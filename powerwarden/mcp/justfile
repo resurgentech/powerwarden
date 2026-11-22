@@ -1,4 +1,4 @@
-# pwrwrdn leaf (powerwarden agent CLI + MCP server). Native justfile.
+# pwrwrdn leaf (the powerwarden CLI). Native justfile.
 
 exename := "pwrwrdn"
 
@@ -10,7 +10,7 @@ default:
 clean:
   rm -f cmd/{{exename}}/{{exename}}
 
-# Run unit tests (httptest fakes and the in-memory MCP transport; no network)
+# Run unit tests (httptest fakes; no network)
 test *args:
   go test {{args}} ./...
 

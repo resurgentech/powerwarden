@@ -18,19 +18,15 @@ import (
 // newKeyFlags is newFlags plus the flags of a command that may ask for a key.
 func newKeyFlags(name string, e env) (*flag.FlagSet, *string) {
 	fs, tf := newFlags(name, e)
-	addKeyRequestFlags(fs, true)
+	addKeyRequestFlags(fs)
 	return fs, tf
 }
 
-// addKeyRequestFlags registers --key-request-url and --role, and with
-// noKeyRequest also --no-key-request (the MCP server never waits, so it has
-// no use for it).
-func addKeyRequestFlags(fs *flag.FlagSet, noKeyRequest bool) {
+// addKeyRequestFlags registers --key-request-url, --role and --no-key-request.
+func addKeyRequestFlags(fs *flag.FlagSet) {
 	fs.String("key-request-url", "", "key request URL (default $"+client.EnvKeyRequestURL+"; when neither is set, discovered from the service)")
 	fs.String("role", keyreq.DefaultRole, "role to ask for in a key request")
-	if noKeyRequest {
-		fs.Bool("no-key-request", false, "do not wait for a person to approve a key request; print the notice and exit 75")
-	}
+	fs.Bool("no-key-request", false, "do not wait for a person to approve a key request; print the notice and exit 75")
 }
 
 // keyOverride is the key request URL: the flag, else the env var.

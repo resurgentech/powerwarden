@@ -105,7 +105,7 @@ func TestIDs(t *testing.T) {
 	if !regexp.MustCompile(`^s-[0-9a-f]{12}$`).MatchString(client.NewSessionID()) {
 		t.Error("session id shape")
 	}
-	if !regexp.MustCompile(`^mcp-[0-9a-f]{12}$`).MatchString(client.NewClaimID("mcp")) {
+	if !regexp.MustCompile(`^pwrwrdn-[0-9a-f]{12}$`).MatchString(client.NewClaimID("pwrwrdn")) {
 		t.Error("claim id shape")
 	}
 	if !regexp.MustCompile(`^pwrwrdn-[0-9a-f]{12}$`).MatchString(client.NewClaimID("pwrwrdn")) {

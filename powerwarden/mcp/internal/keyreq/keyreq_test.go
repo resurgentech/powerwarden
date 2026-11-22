@@ -8,18 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/resurgentech/keyclient/keyclienttest"
 	"github.com/resurgentech/keyclient/request"
 	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/pwfake"
 )
 
 func testNotice() request.Notice {
@@ -71,19 +67,7 @@ func TestSR9StringsPinned(t *testing.T) {
 	}
 }
 
-func TestMCPTextsPinned(t *testing.T) {
-	n := testNotice()
-	want := "No powerwarden key on this machine yet. " + n.String() + " Then retry."
-	if got := PendingMCPText(n); got != want {
-		t.Fatalf("pending text %q", got)
-	}
-	if !strings.HasPrefix(want, "No powerwarden key on this machine yet. Approve this key request for powerwarden.example.com at https://keys.example.com/requests?code=ABCD-EFGH and check that the code ABCD-EFGH matches.") ||
-		!strings.HasSuffix(want, " The request expires at 2030-01-02T03:04:05Z. Then retry.") {
-		t.Fatalf("unexpected shape: %q", want)
-	}
-	if MCPBusyText != "another pwrwrdn is handling the key request; retry shortly" {
-		t.Fatalf("busy text %q", MCPBusyText)
-	}
+func TestConstantsPinned(t *testing.T) {
 	if DefaultRole != "agent" || ExitTempFail != 75 || client.EnvKeyRequestURL != "POWERWARDEN_KEY_REQUEST_URL" || client.Version != "0.2.0" {
 		t.Fatal("constants drifted")
 	}
@@ -267,157 +251,5 @@ func TestRetryConcurrentCallsWaitForTheFirst(t *testing.T) {
 	defer mu.Unlock()
 	if strings.Join(order, ",") != "/first,/first,/other" {
 		t.Fatalf("order %v: the other call must wait for the first call and its retry", order)
-	}
-}
-
-// ---- the MCP gate ----
-
-type gateRig struct {
-	t    *testing.T
-	p    *keyclienttest.Provider
-	f    *pwfake.Fake
-	tok  string
-	gate *Gate
-}
-
-func newGateRig(t *testing.T) *gateRig {
-	t.Helper()
-	shrinkDelay(t)
-	f := pwfake.New()
-	t.Cleanup(f.Srv.Close)
-	p := keyclienttest.NewProvider(t)
-	tok := filepath.Join(t.TempDir(), "cfg", "token")
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	g, err := NewGate(ctx, client.Config{URL: f.Srv.URL}, Params{ServiceURL: f.Srv.URL, Override: p.RequestURL(), TokenPath: tok, NameHint: "tester@box"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &gateRig{t: t, p: p, f: f, tok: tok, gate: g}
-}
-
-func (r *gateRig) connect() (client.API, error) { return r.gate.Connect(context.Background()) }
-
-func (r *gateRig) untilNotPending() (client.API, error) {
-	r.t.Helper()
-	for end := time.Now().Add(15 * time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
-		api, err := r.connect()
-		if err == nil || !strings.HasPrefix(err.Error(), "No powerwarden key on this machine yet. ") {
-			return api, err
-		}
-	}
-	r.t.Fatal("request never settled")
-	return nil, nil
-}
-
-func TestGatePendingThenKey(t *testing.T) {
-	r := newGateRig(t)
-	r.p.Script(keyclienttest.Approved())
-	_, err := r.connect()
-	if err == nil || !strings.HasPrefix(err.Error(), "No powerwarden key on this machine yet. Approve this key request") || !strings.HasSuffix(err.Error(), " Then retry.") {
-		t.Fatalf("%v", err)
-	}
-	first := err.Error()
-	if _, err := r.connect(); err == nil || err.Error() != first {
-		t.Fatalf("second call: %v", err)
-	}
-	if n := len(r.p.Filed()); n != 1 {
-		t.Fatalf("filed %d", n)
-	}
-	if strings.Contains(first, r.p.PollSecret()) || strings.Contains(first, r.p.Key()) {
-		t.Fatal("secret in the MCP text")
-	}
-	// the first filing carries the defaults
-	if f := r.p.Filed()[0]; f.Role != "agent" || f.NameHint != "tester@box" || f.Tool != "pwrwrdn/0.2.0" {
-		t.Fatalf("%+v", f)
-	}
-	// 401 once on the first service call after the key landed: retried once
-	var hits atomic.Int32
-	r.f.Respond = func(q pwfake.Req) (int, any, bool) {
-		if q.Path == "/v1/hosts" && hits.Add(1) == 1 {
-			return 401, pwfake.Err("unauthorized", "no"), true
-		}
-		return 0, nil, false
-	}
-	api, err := r.untilNotPending()
-	if err != nil || api == nil {
-		t.Fatalf("%v", err)
-	}
-	resp, err := api.ListHostsWithResponse(context.Background(), nil)
-	if err != nil || resp.StatusCode() != 200 || hits.Load() != 2 {
-		t.Fatalf("%v status %d hits %d", err, resp.StatusCode(), hits.Load())
-	}
-	if q, _ := r.f.Last("GET", "/v1/hosts"); q.Auth != "Bearer "+r.p.Key() {
-		t.Fatalf("bearer %q", q.Auth)
-	}
-	b, _ := os.ReadFile(r.tok)
-	if strings.TrimSpace(string(b)) != r.p.Key() {
-		t.Fatal("key not stored")
-	}
-}
-
-func TestGateDeniedThenFilesAgain(t *testing.T) {
-	r := newGateRig(t)
-	r.p.Script(keyclienttest.Denied())
-	if _, err := r.connect(); err == nil || !strings.HasPrefix(err.Error(), "No powerwarden key") {
-		t.Fatalf("%v", err)
-	}
-	_, err := r.untilNotPending()
-	if err == nil || err.Error() != "key request denied" {
-		t.Fatalf("%v", err)
-	}
-	if n := len(r.p.Filed()); n != 1 {
-		t.Fatalf("filed %d", n)
-	}
-	if _, err := r.connect(); err == nil || !strings.HasPrefix(err.Error(), "No powerwarden key") {
-		t.Fatalf("the call after a final error files a new request: %v", err)
-	}
-	if n := len(r.p.Filed()); n != 2 {
-		t.Fatalf("filed %d, want a new request", n)
-	}
-}
-
-func TestGateFinalErrorsUseSR9Words(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		o    keyclienttest.Outcome
-		want string
-	}{
-		{"expired", keyclienttest.Expired(), "key request: expired\nrun this again to file a new request"},
-		{"consumed", keyclienttest.Consumed(), "key request: the key was already handed out and not received; request again\nrun this again to file a new request"},
-		{"unauthorized", keyclienttest.Unauthorized(), "key request: poll refused as unauthorized: unauthorized"},
-	} {
-		r := newGateRig(t)
-		r.p.Script(tc.o)
-		if _, err := r.connect(); err == nil {
-			t.Fatal("want pending")
-		}
-		if _, err := r.untilNotPending(); err == nil || err.Error() != tc.want {
-			t.Errorf("%s: %v", tc.name, err)
-		}
-	}
-}
-
-func TestGateProviderErrorAndNoProvider(t *testing.T) {
-	r := newGateRig(t)
-	r.p.FileWith(keyclienttest.Status(429, `{"error":"rate_limited","message":"slow down"}`).WithHeader("Retry-After", "7"))
-	_, err := r.connect()
-	if err == nil || !strings.Contains(err.Error(), "status 429") || !strings.HasSuffix(err.Error(), "\ntry again in 7s") {
-		t.Fatalf("%v", err)
-	}
-	// no provider: today's no-token error, nothing created
-	f := pwfake.New()
-	t.Cleanup(f.Srv.Close)
-	tok := filepath.Join(t.TempDir(), "cfg", "token")
-	g, err := NewGate(context.Background(), client.Config{URL: f.Srv.URL}, Params{ServiceURL: f.Srv.URL, TokenPath: tok, NameHint: "tester@box"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = g.Connect(context.Background())
-	if err == nil || !strings.HasPrefix(err.Error(), "token file: ") || !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("%v", err)
-	}
-	if _, err := os.Stat(filepath.Dir(tok)); err == nil {
-		t.Fatal("something was created")
 	}
 }

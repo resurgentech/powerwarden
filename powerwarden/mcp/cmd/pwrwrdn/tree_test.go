@@ -2,7 +2,7 @@ package main
 
 // The command-line convention, checked against the real command table:
 // every command's --help (stdout, exit 0, usage, description, flags and an
-// example), --json on every non-interactive command (one object on stdout),
+// example), --json on every command (none is interactive; one object on stdout),
 // the JSON error object on stderr, and the exit codes 0, 1, 2 and 75.
 
 import (
@@ -68,11 +68,18 @@ func TestTreeIsWalked(t *testing.T) {
 	for _, p := range commandPaths() {
 		got[strings.Join(p, " ")] = true
 	}
-	for _, want := range []string{"mcp", "setup-token", "key request", "key status", "run", "claim",
-		"release", "extend", "power", "hosts", "claims"} {
-		if !got[want] {
-			t.Errorf("command tree lacks %q (have %v)", want, got)
+	want := []string{"setup-token", "key request", "key status", "run", "claim",
+		"release", "extend", "power", "hosts", "claims"}
+	for _, w := range want {
+		if !got[w] {
+			t.Errorf("command tree lacks %q (have %v)", w, got)
 		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("command tree has %d commands, want exactly %v (have %v)", len(got), want, got)
+	}
+	if got["mcp"] {
+		t.Error("command tree still lists mcp")
 	}
 }
 
@@ -109,7 +116,7 @@ func TestBareIsUsageError(t *testing.T) {
 
 // Every command, and the key group: --help and -h print the parts the
 // convention asks for on stdout and exit 0; --json --help is accepted (so the
-// flag is defined) except on interactive commands.
+// flag is defined) on every command.
 func TestTreeHelp(t *testing.T) {
 	paths := append(commandPaths(), []string{"key"})
 	for _, p := range paths {
@@ -129,7 +136,7 @@ func TestTreeHelp(t *testing.T) {
 					t.Errorf("%s %s: help lacks %q:\n%s", name, flag, want, out)
 				}
 			}
-			if name != "key" && !isInteractive(p) {
+			if name != "key" {
 				if !strings.Contains(out, "-json") {
 					t.Errorf("%s: help does not list --json:\n%s", name, out)
 				}
@@ -139,14 +146,7 @@ func TestTreeHelp(t *testing.T) {
 			continue
 		}
 		r := newRig(t)
-		rc := r.do(append(append([]string{}, p...), "--json", "--help")...)
-		if isInteractive(p) {
-			if rc != 2 || !strings.Contains(r.errb.String(), "interactive command; no --json") {
-				t.Errorf("%s --json: rc=%d stderr=%q, want 2 and the interactive message", name, rc, r.errb)
-			}
-			continue
-		}
-		if rc != 0 {
+		if rc := r.do(append(append([]string{}, p...), "--json", "--help")...); rc != 0 {
 			t.Errorf("%s --json --help: rc=%d stderr=%q", name, rc, r.errb)
 		}
 	}
@@ -159,14 +159,23 @@ func TestRunHelpSaysExitCode(t *testing.T) {
 	}
 }
 
-func TestInteractiveJSON(t *testing.T) {
+// mcp is not a command: --json on it is the usage error object, exit 2, and
+// the help names no MCP server.
+func TestNoMCPCommand(t *testing.T) {
 	r := newRig(t)
-	if rc := r.do("mcp", "--json"); rc != 2 || !strings.Contains(r.errb.String(), "interactive command; no --json") {
+	if rc := r.do("mcp", "--json"); rc != 2 {
 		t.Fatalf("rc=%d stderr=%q", rc, r.errb)
+	}
+	if code, msg := errorObject(t, "mcp --json stderr", r.errb.String()); code != "usage" || !strings.Contains(msg, `unknown subcommand "mcp"`) {
+		t.Fatalf("code=%q msg=%q", code, msg)
+	}
+	h := newRig(t)
+	if rc := h.do("--help"); rc != 0 || strings.Contains(strings.ToLower(h.out.String()), "mcp") {
+		t.Fatalf("rc=%d top-level help mentions mcp:\n%s", rc, h.out)
 	}
 }
 
-// jsonCase runs one non-interactive command with --json against the fake and
+// jsonCase runs one command with --json against the fake and
 // checks its stdout object.
 type jsonCase struct {
 	args  []string
@@ -233,7 +242,7 @@ func TestTreeJSON(t *testing.T) {
 	}
 	for _, p := range commandPaths() {
 		name := strings.Join(p, " ")
-		if isInteractive(p) || name == "run" || name == "setup-token" {
+		if name == "run" || name == "setup-token" {
 			continue // run: TestRunJSON; setup-token needs OpenBao: TestSetupTokenJSON
 		}
 		c, ok := cases[name]

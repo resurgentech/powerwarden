@@ -2,7 +2,7 @@
 
 **powerwarden**: two small services that power lab hosts on and off: **powermaster** (drives the hardware:
 IPMI, PDUs, ping and SSH checks) and **powerwarden** (decides when hosts should be on, from demands, workers and
-claims), plus `pwrwrdn`, the CLI and MCP server for powerwarden's claim API.
+claims), plus `pwrwrdn`, the CLI for powerwarden's claim API.
 
 - `powermaster/api`, `powerwarden/api`: generated Go clients for `specs/openapi/*.yml` (spec-first).
 - `powermaster/daemon`, `powerwarden/daemon`: the services; `powerwarden/mcp`: `pwrwrdn`.
