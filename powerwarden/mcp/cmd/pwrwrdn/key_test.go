@@ -715,7 +715,7 @@ func TestSetupTokenDeprecated(t *testing.T) {
 	if !strings.HasPrefix(c.summary, "deprecated: ") || !strings.Contains(c.summary, "pwrwrdn key request") {
 		t.Fatalf("summary %q", c.summary)
 	}
-	if k := commands["key"]; k.run == nil || k.summary == "" {
+	if k := commands["key"]; k == nil || k.subs["request"] == nil || k.subs["status"] == nil || k.summary == "" {
 		t.Fatal("no key command")
 	}
 	r := newRig(t)

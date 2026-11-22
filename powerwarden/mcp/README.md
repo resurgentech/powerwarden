@@ -169,6 +169,23 @@ agent session ends, and never makes a detached claim.
 All of them take `--token-file`. A claim id made by the CLI looks like
 `pwrwrdn-<12 hex>`. Durations are `90m`, `2h`, `1d`, `1d12h`.
 
+`pwrwrdn` follows the command-line convention in
+[`docs/CLI.md`](../../docs/CLI.md), which also lists its JSON shapes and error
+codes:
+
+- `pwrwrdn --help`, `-h`, and `pwrwrdn <command> --help` print to stdout and
+  exit 0. The top-level help has "Agent tips".
+- `--json` on every command but `mcp` prints one JSON object on stdout:
+  `claim` and `extend` print the API's `Claim`, `hosts` prints `{"hosts":[...]}`,
+  `claims` prints `{"claims":[...]}`. With `--json` an error is one object on
+  stderr, `{"error":{"code":"...","message":"..."}}`; a pending key request is
+  code `key_pending`, exit 75.
+- `run --json` keeps stdout for the command. It writes `{"claim_id","host","mode"}`
+  on stderr before the command starts and `{"claim_id","exit_code"}` after it ends.
+- `mcp` is interactive (a server): `mcp --json` exits 2.
+- Exit codes: `0` success, `1` error, `2` usage (a bad command, flag or
+  argument), `75` try again later; `run` exits with its command's code.
+
 ### `pwrwrdn run [--mode M] --tags a,b [--purpose P] [--max D] [--on] -- <cmd>`
 
 Claims a host, runs `<cmd>` with `POWERWARDEN_CLAIM_ID` and `POWERWARDEN_HOST`

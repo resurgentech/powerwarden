@@ -130,3 +130,22 @@ are appended, never edited in; a hook refuses rewrites.
   README and DESIGN doc updated.
 - Release: `powerwarden/mcp/v0.2.0` goes on the commit that carries this entry (tag to be created after review).
 - Commits: the commit on branch `b8-status` that carries this entry.
+
+## 2026-11-22 — pwrwrdn: `--json` on every command, help on stdout, agent tips
+
+- New `docs/CLI.md`: the command-line convention `pwrwrdn` follows, plus its JSON shapes and error codes.
+- `--json` on `claim`, `extend` (the API's `Claim`), `release`, `power`, `hosts` (`{"hosts":[...]}`), `claims`
+  (`{"claims":[...]}`), `key request`, `key status` and `setup-token` (deprecated; `"deprecated":true`). With
+  `--json` an error is one object on stderr, `{"error":{"code","message"}}`; a pending key request is
+  `key_pending`, exit 75, and its message holds the approval notice. `run --json` writes `{"claim_id","host","mode"}`
+  on stderr before the command and `{"claim_id","exit_code"}` after it; the exit code stays the command's.
+  `mcp --json` exits 2 ("interactive command; no --json"); `mcp` itself is unchanged.
+- Help: `pwrwrdn --help`, `-h` and `pwrwrdn <command> --help` print to stdout and exit 0 (the bare `--help` was
+  stderr and exit 2). Each command's help has usage, a description, flags and examples; the top-level help has
+  "Agent tips" (`--json`, `claim --wait` vs. `run`, keys and exit 75, `mcp` is interactive). Bare `pwrwrdn` is still
+  a usage error on stderr, exit 2.
+- Usage errors (a missing or extra argument, a bad `--mode`, `--max`, `--wait-on` or duration, an unknown flag) now
+  exit 2; they exited 1.
+- `internal/cli` gains the JSON form beside the tables. A test walks the command table: every command's help,
+  `--json` on every non-interactive command, the error object and the exit codes. README updated.
+- Commits: the commit on `main` that carries this entry.

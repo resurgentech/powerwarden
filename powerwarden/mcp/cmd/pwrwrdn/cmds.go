@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -27,9 +28,10 @@ const claimPrefix = "pwrwrdn"
 
 func newFlags(name string, e env) (*flag.FlagSet, *string) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.SetOutput(e.Stderr)
+	fs.SetOutput(io.Discard) // parse words the errors; help goes to stdout
 	tf := fs.String("token-file", "", "token file (default $POWERWARDEN_TOKEN_FILE or ~/.config/powerwarden/token)")
 	addURLFlag(fs)
+	fs.Bool("json", false, "print one JSON object on stdout; an error is one JSON object on stderr")
 	return fs, tf
 }
 
@@ -62,18 +64,18 @@ func parseMixed(fs *flag.FlagSet, args []string) ([]string, error) {
 func connect(ctx context.Context, e env, fs *flag.FlagSet, tokenFile string) (client.API, client.Config, error) {
 	cfg, err := client.ResolveConfig(urlFlag(fs), e.Getenv, e.Home)
 	if err != nil {
-		return nil, cfg, err
+		return nil, cfg, coded("config", err)
 	}
 	path := client.TokenPath(tokenFile, e.Getenv, e.Home)
 	tok, lerr := client.LoadToken(path)
 	armed := false
 	if lerr != nil {
 		if !errors.Is(lerr, os.ErrNotExist) {
-			return nil, cfg, lerr
+			return nil, cfg, coded("token_file", lerr)
 		}
 		res, err := ensureKey(ctx, e, fs, cfg, path)
 		if errors.Is(err, request.ErrNoProvider) {
-			return nil, cfg, lerr // today's "no token" error, unchanged
+			return nil, cfg, coded("no_key", lerr) // today's "no token" error, unchanged
 		}
 		if err != nil {
 			return nil, cfg, err
@@ -82,7 +84,7 @@ func connect(ctx context.Context, e env, fs *flag.FlagSet, tokenFile string) (cl
 	}
 	hc, err := client.HTTPClient(cfg.CAFile)
 	if err != nil {
-		return nil, cfg, err
+		return nil, cfg, coded("config", err)
 	}
 	api, err := client.New(cfg, tok, keyreq.WrapRetry(hc, armed))
 	return api, cfg, err
@@ -107,7 +109,7 @@ func parseMode(s string) (pw.ClaimMode, error) {
 	case "dedicated":
 		return pw.Dedicated, nil
 	}
-	return "", fmt.Errorf("--mode %q is not hold, reserve or dedicated", s)
+	return "", usageErr("--mode %q is not hold, reserve or dedicated", s)
 }
 
 func maxSeconds(s string) (int, error) {
@@ -116,7 +118,7 @@ func maxSeconds(s string) (int, error) {
 	}
 	d, err := cli.ParseDuration(s)
 	if err != nil {
-		return 0, fmt.Errorf("--max: %w", err)
+		return 0, usageErr("--max: %v", err)
 	}
 	return int(d / time.Second), nil
 }
@@ -148,7 +150,7 @@ func (c claimFlags) spec(defPurpose string) (keeper.Spec, error) {
 	}
 	tags := splitTags(*c.tags)
 	if len(tags) == 0 {
-		return keeper.Spec{}, errors.New("--tags: at least one tag is required")
+		return keeper.Spec{}, usageErr("--tags: at least one tag is required")
 	}
 	ms, err := maxSeconds(*c.max)
 	if err != nil {
@@ -168,27 +170,41 @@ func hostOf(c pw.Claim) string {
 	return "pending"
 }
 
-func printClaim(e env, c pw.Claim) {
-	fmt.Fprintf(e.Stdout, "claim       %s\nhost        %s\nexpires_at  %s\n", c.Id, hostOf(c), c.ExpiresAt.Local().Format(time.RFC3339))
+// printClaim prints a claim: three lines, or with --json the API's Claim
+// object.
+func printClaim(e env, c pw.Claim) error {
+	if e.jsonOut() {
+		return cli.WriteJSON(e.Stdout, c)
+	}
+	_, err := fmt.Fprintf(e.Stdout, "claim       %s\nhost        %s\nexpires_at  %s\n", c.Id, hostOf(c), c.ExpiresAt.Local().Format(time.RFC3339))
+	return err
+}
+
+// failed is the error of a claim that ended failed.
+func failed(c pw.Claim) error {
+	return coded(string(pw.ErrorCodeClaimFailed), fmt.Errorf("claim %s failed: %s", c.Id, c.Detail))
 }
 
 // ---- setup-token ----
 
 func runSetupToken(ctx context.Context, e env) error {
-	fmt.Fprintln(e.Stderr, "pwrwrdn: setup-token is deprecated; use pwrwrdn key request")
 	fs, tf := newFlags("setup-token", e)
 	name := fs.String("name", "", "token name in OpenBao (default $USER@<short hostname>)")
 	force := fs.Bool("force", false, "overwrite an existing token file")
 	baoPath := fs.String("bao-path", "", "OpenBao kv path holding the user tokens (default $PWRWRDN_BAO_PATH)")
 	baoMount := fs.String("bao-mount", "", "OpenBao kv mount (default $PWRWRDN_BAO_MOUNT, else kv)")
-	if err := fs.Parse(e.Args); err != nil {
+	if _, err := parse(e, fs, e.Args, false); err != nil {
 		return err
+	}
+	// With --json the notice is the object's "deprecated" field instead.
+	if !e.jsonOut() {
+		fmt.Fprintln(e.Stderr, "pwrwrdn: setup-token is deprecated; use pwrwrdn key request")
 	}
 	if *baoPath == "" {
 		*baoPath = e.Getenv("PWRWRDN_BAO_PATH")
 	}
 	if *baoPath == "" {
-		return errors.New("OpenBao path not set: pass --bao-path or set PWRWRDN_BAO_PATH")
+		return coded("config", errors.New("OpenBao path not set: pass --bao-path or set PWRWRDN_BAO_PATH"))
 	}
 	if *baoMount == "" {
 		*baoMount = e.Getenv("PWRWRDN_BAO_MOUNT")
@@ -198,13 +214,13 @@ func runSetupToken(ctx context.Context, e env) error {
 	}
 	if *name == "" {
 		if e.Getenv("USER") == "" {
-			return errors.New("$USER is empty: pass --name")
+			return coded("config", errors.New("$USER is empty: pass --name"))
 		}
 		*name = ownerGuess(e)
 	}
 	path := client.TokenPath(*tf, e.Getenv, e.Home)
 	if _, err := os.Lstat(path); err == nil && !*force {
-		return fmt.Errorf("%s exists: pass --force to overwrite it", path)
+		return coded("exists", fmt.Errorf("%s exists: pass --force to overwrite it", path))
 	}
 	// The URL file sits beside the token file and is written only when --url
 	// is given. Like the token, an existing one needs --force.
@@ -212,33 +228,48 @@ func runSetupToken(ctx context.Context, e env) error {
 	setURL := strings.TrimRight(strings.TrimSpace(urlFlag(fs)), "/")
 	if setURL != "" {
 		if _, err := os.Lstat(urlFile); err == nil && !*force {
-			return fmt.Errorf("%s exists: pass --force to overwrite it", urlFile)
+			return coded("exists", fmt.Errorf("%s exists: pass --force to overwrite it", urlFile))
 		}
 	}
 	tok, err := cli.FetchToken(ctx, *baoMount, *baoPath, *name)
 	if errors.Is(err, cli.ErrNoSuchName) {
-		return fmt.Errorf("OpenBao has no token for %q. Ask the admin to store a user token at %s/%s under field %s, "+
-			"then run setup-token again", *name, *baoMount, *baoPath, *name)
+		return coded("not_found", fmt.Errorf("OpenBao has no token for %q. Ask the admin to store a user token at %s/%s under field %s, "+
+			"then run setup-token again", *name, *baoMount, *baoPath, *name))
 	}
 	if err != nil {
-		return err
+		return coded("bao", err)
 	}
 	if err := cli.WriteToken(path, tok, *force); err != nil {
 		if errors.Is(err, cli.ErrExists) {
-			return fmt.Errorf("%s exists: pass --force to overwrite it", path)
+			return coded("exists", fmt.Errorf("%s exists: pass --force to overwrite it", path))
 		}
 		return err
 	}
-	fmt.Fprintf(e.Stdout, "token for %s written to %s\n", *name, path)
+	out := struct {
+		Deprecated bool   `json:"deprecated"`
+		Name       string `json:"name"`
+		TokenFile  string `json:"token_file"`
+		URL        string `json:"url,omitempty"`
+		URLFile    string `json:"url_file,omitempty"`
+	}{Deprecated: true, Name: *name, TokenFile: path}
+	if !e.jsonOut() {
+		fmt.Fprintf(e.Stdout, "token for %s written to %s\n", *name, path)
+	}
 	if setURL != "" {
 		// WriteToken is the atomic 0700-dir/0600-file writer; the content is just a line.
 		if err := cli.WriteToken(urlFile, setURL, *force); err != nil {
 			if errors.Is(err, cli.ErrExists) {
-				return fmt.Errorf("%s exists: pass --force to overwrite it", urlFile)
+				return coded("exists", fmt.Errorf("%s exists: pass --force to overwrite it", urlFile))
 			}
 			return err
 		}
-		fmt.Fprintf(e.Stdout, "url %s written to %s\n", setURL, urlFile)
+		out.URL, out.URLFile = setURL, urlFile
+		if !e.jsonOut() {
+			fmt.Fprintf(e.Stdout, "url %s written to %s\n", setURL, urlFile)
+		}
+	}
+	if e.jsonOut() {
+		return cli.WriteJSON(e.Stdout, out)
 	}
 	return nil
 }
@@ -249,12 +280,14 @@ func runRun(ctx context.Context, e env) error {
 	fs, tf := newKeyFlags("run", e)
 	cf := addClaimFlags(fs, tf)
 	on := fs.Bool("on", false, "send powerup and wait for host_state on (for dedicated claims, which powerwarden never boots)")
-	if err := fs.Parse(e.Args); err != nil {
+	fs.Lookup("json").Usage = "print one JSON object on stderr with the claim id and host before the command starts, " +
+		"and one with exit_code after it ends (stdout stays the command's)"
+	argv, err := parse(e, fs, e.Args, false)
+	if err != nil {
 		return err
 	}
-	argv := fs.Args()
 	if len(argv) == 0 {
-		return errors.New("usage: pwrwrdn run [flags] -- <cmd> [args...]")
+		return usageErr("usage: pwrwrdn run [flags] -- <cmd> [args...]")
 	}
 	spec, err := cf.spec("pwrwrdn run: " + argv[0])
 	if err != nil {
@@ -305,12 +338,38 @@ func runRun(ctx context.Context, e env) error {
 	close(stopWatch)
 	<-watchDone
 	if s := gotSig.Load(); s != 0 {
-		return &exitError{code: 128 + int(s), msg: fmt.Sprintf("interrupted while waiting for the claim; releasing %s", id)}
+		return &exitError{code: 128 + int(s), kind: "interrupted", msg: fmt.Sprintf("interrupted while waiting for the claim; releasing %s", id)}
 	}
 	if err != nil {
 		return err
 	}
-	return runChild(e, k, sigs, argv, id, host)
+	if e.jsonOut() {
+		_ = cli.WriteJSON(e.Stderr, struct {
+			ClaimID string       `json:"claim_id"`
+			Host    string       `json:"host"`
+			Mode    pw.ClaimMode `json:"mode"`
+		}{id, host, spec.Mode})
+	}
+	err = runChild(e, k, sigs, argv, id, host)
+	if code, ok := childCode(err); ok && e.jsonOut() {
+		_ = cli.WriteJSON(e.Stderr, struct {
+			ClaimID  string `json:"claim_id"`
+			ExitCode int    `json:"exit_code"`
+		}{id, code})
+	}
+	return err
+}
+
+// childCode is the exit code of a command run by runChild, when it ran.
+func childCode(err error) (int, bool) {
+	if err == nil {
+		return 0, true
+	}
+	var x *exitError
+	if errors.As(err, &x) && x.msg == "" {
+		return x.code, true
+	}
+	return 0, false
 }
 
 // acquire makes the leased claim and waits until it is ready (and, with on,
@@ -321,13 +380,20 @@ func acquire(ctx context.Context, e env, api client.API, k *keeper.Keeper, spec 
 		return "", "", err
 	}
 	id = c.Id
-	fmt.Fprintf(e.Stderr, "pwrwrdn: claim %s (%s), waiting for a host\n", id, spec.Mode)
+	// With --json, stderr carries the JSON objects and the command's own
+	// stderr; the progress lines stay out.
+	progress := func(format string, a ...any) {
+		if !e.jsonOut() {
+			fmt.Fprintf(e.Stderr, format, a...)
+		}
+	}
+	progress("pwrwrdn: claim %s (%s), waiting for a host\n", id, spec.Mode)
 	got, err := cli.WaitClaim(ctx, api, id, cli.ReadyOrFailed)
 	if err != nil {
 		return "", id, err
 	}
 	if got.State == pw.Failed {
-		return "", id, fmt.Errorf("claim %s failed: %s", id, got.Detail)
+		return "", id, failed(got)
 	}
 	if got.Hostname == nil {
 		return "", id, fmt.Errorf("claim %s is ready without a host", id)
@@ -337,13 +403,13 @@ func acquire(ctx context.Context, e env, api client.API, k *keeper.Keeper, spec 
 		if _, _, err := cli.Power(ctx, api, id, string(pw.ClaimPowerActionPowerup)); err != nil {
 			return host, id, err
 		}
-		fmt.Fprintf(e.Stderr, "pwrwrdn: powerup sent to %s, waiting for it to come on\n", host)
+		progress("pwrwrdn: powerup sent to %s, waiting for it to come on\n", host)
 		got, err = cli.WaitClaim(ctx, api, id, cli.HostOn)
 		if err != nil {
 			return host, id, err
 		}
 		if got.State == pw.Failed {
-			return host, id, fmt.Errorf("claim %s failed: %s", id, got.Detail)
+			return host, id, failed(got)
 		}
 	}
 	return host, id, nil
@@ -361,7 +427,7 @@ func runChild(e env, k *keeper.Keeper, sigs <-chan os.Signal, argv []string, id,
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			code = 127
 		}
-		return &exitError{code: code, msg: err.Error()}
+		return &exitError{code: code, kind: "exec", msg: err.Error()}
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -413,7 +479,7 @@ func runClaim(ctx context.Context, e env) error {
 	fs, tf := newKeyFlags("claim", e)
 	cf := addClaimFlags(fs, tf)
 	wait := fs.Bool("wait", false, "block until the claim is ready")
-	if err := fs.Parse(e.Args); err != nil {
+	if _, err := parse(e, fs, e.Args, false); err != nil {
 		return err
 	}
 	spec, err := cf.spec("pwrwrdn claim by " + ownerGuess(e))
@@ -435,23 +501,22 @@ func runClaim(ctx context.Context, e env) error {
 		}
 		c = &got
 		if c.State == pw.Failed {
-			return fmt.Errorf("claim %s failed: %s", c.Id, c.Detail)
+			return failed(*c)
 		}
 	}
-	printClaim(e, *c)
-	return nil
+	return printClaim(e, *c)
 }
 
 // ---- release / extend / power ----
 
 func runRelease(ctx context.Context, e env) error {
 	fs, tf := newKeyFlags("release", e)
-	pos, err := parseMixed(fs, e.Args)
+	pos, err := parse(e, fs, e.Args, true)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 1 {
-		return errors.New("usage: pwrwrdn release <id>")
+		return usageErr("usage: pwrwrdn release <id>")
 	}
 	api, _, err := connect(ctx, e, fs, *tf)
 	if err != nil {
@@ -460,22 +525,28 @@ func runRelease(ctx context.Context, e env) error {
 	if err := cli.Release(ctx, api, pos[0]); err != nil {
 		return err
 	}
+	if e.jsonOut() {
+		return cli.WriteJSON(e.Stdout, struct {
+			ID       string `json:"id"`
+			Released bool   `json:"released"`
+		}{pos[0], true})
+	}
 	fmt.Fprintf(e.Stdout, "released %s\n", pos[0])
 	return nil
 }
 
 func runExtend(ctx context.Context, e env) error {
 	fs, tf := newKeyFlags("extend", e)
-	pos, err := parseMixed(fs, e.Args)
+	pos, err := parse(e, fs, e.Args, true)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 2 {
-		return errors.New("usage: pwrwrdn extend <id> <duration>")
+		return usageErr("usage: pwrwrdn extend <id> <duration>")
 	}
 	d, err := cli.ParseDuration(pos[1])
 	if err != nil {
-		return err
+		return usageErr("%v", err)
 	}
 	api, _, err := connect(ctx, e, fs, *tf)
 	if err != nil {
@@ -491,14 +562,13 @@ func runExtend(ctx context.Context, e env) error {
 	if resp.JSON200 == nil {
 		return errors.New("powerwarden answered 200 without a claim")
 	}
-	printClaim(e, *resp.JSON200)
-	return nil
+	return printClaim(e, *resp.JSON200)
 }
 
 func runPower(ctx context.Context, e env) error {
 	fs, tf := newKeyFlags("power", e)
 	waitOn := fs.String("wait-on", "", "after the command, wait up to this long for host_state on")
-	pos, err := parseMixed(fs, e.Args)
+	pos, err := parse(e, fs, e.Args, true)
 	if err != nil {
 		return err
 	}
@@ -506,18 +576,18 @@ func runPower(ctx context.Context, e env) error {
 	switch len(pos) {
 	case 1:
 		if id = e.Getenv("POWERWARDEN_CLAIM_ID"); id == "" {
-			return errors.New("no claim id: pass one or set POWERWARDEN_CLAIM_ID (usage: pwrwrdn power [<id>] <action>)")
+			return usageErr("no claim id: pass one or set POWERWARDEN_CLAIM_ID (usage: pwrwrdn power [<id>] <action>)")
 		}
 		action = pos[0]
 	case 2:
 		id, action = pos[0], pos[1]
 	default:
-		return errors.New("usage: pwrwrdn power [<id>] <action> [--wait-on D]")
+		return usageErr("usage: pwrwrdn power [<id>] <action> [--wait-on D]")
 	}
 	var wait time.Duration
 	if *waitOn != "" {
 		if wait, err = cli.ParseDuration(*waitOn); err != nil {
-			return fmt.Errorf("--wait-on: %w", err)
+			return usageErr("--wait-on: %v", err)
 		}
 	}
 	api, _, err := connect(ctx, e, fs, *tf)
@@ -528,14 +598,24 @@ func runPower(ctx context.Context, e env) error {
 	if err != nil {
 		return err
 	}
-	prefix := ""
-	if already {
-		prefix = "already there: "
-	}
-	if cmd != nil {
-		fmt.Fprintf(e.Stdout, "%s%s %s on %s (command %d)\n", prefix, cmd.Action, cmd.State, cmd.Hostname, cmd.Id)
-	} else {
-		fmt.Fprintf(e.Stdout, "%s%s sent\n", prefix, action)
+	out := struct {
+		ClaimID   string        `json:"claim_id"`
+		Action    string        `json:"action"`
+		Already   bool          `json:"already"`
+		Command   *pw.Command   `json:"command"`
+		Hostname  *string       `json:"hostname,omitempty"`
+		HostState *pw.HostState `json:"host_state,omitempty"`
+	}{ClaimID: id, Action: action, Already: already, Command: cmd}
+	if !e.jsonOut() {
+		prefix := ""
+		if already {
+			prefix = "already there: "
+		}
+		if cmd != nil {
+			fmt.Fprintf(e.Stdout, "%s%s %s on %s (command %d)\n", prefix, cmd.Action, cmd.State, cmd.Hostname, cmd.Id)
+		} else {
+			fmt.Fprintf(e.Stdout, "%s%s sent\n", prefix, action)
+		}
 	}
 	if wait > 0 {
 		wctx, cancel := context.WithTimeout(ctx, wait)
@@ -543,14 +623,20 @@ func runPower(ctx context.Context, e env) error {
 		got, err := cli.WaitClaim(wctx, api, id, cli.HostOn)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return fmt.Errorf("host did not reach state on within %s", *waitOn)
+				return coded("timeout", fmt.Errorf("host did not reach state on within %s", *waitOn))
 			}
 			return err
 		}
 		if got.State == pw.Failed {
-			return fmt.Errorf("claim %s failed: %s", id, got.Detail)
+			return failed(got)
 		}
-		fmt.Fprintf(e.Stdout, "%s is on\n", hostOf(got))
+		out.Hostname, out.HostState = got.Hostname, got.HostState
+		if !e.jsonOut() {
+			fmt.Fprintf(e.Stdout, "%s is on\n", hostOf(got))
+		}
+	}
+	if e.jsonOut() {
+		return cli.WriteJSON(e.Stdout, out)
 	}
 	return nil
 }
@@ -560,7 +646,7 @@ func runPower(ctx context.Context, e env) error {
 func runHosts(ctx context.Context, e env) error {
 	fs, tf := newKeyFlags("hosts", e)
 	tags := fs.String("tags", "", "only hosts carrying all of these tags (explicit or name tags)")
-	if err := fs.Parse(e.Args); err != nil {
+	if _, err := parse(e, fs, e.Args, false); err != nil {
 		return err
 	}
 	api, _, err := connect(ctx, e, fs, *tf)
@@ -582,6 +668,9 @@ func runHosts(ctx context.Context, e env) error {
 	if resp.JSON200 != nil {
 		hosts = *resp.JSON200
 	}
+	if e.jsonOut() {
+		return cli.HostsJSON(e.Stdout, hosts)
+	}
 	cli.HostsTable(e.Stdout, hosts, time.Now())
 	return nil
 }
@@ -589,7 +678,7 @@ func runHosts(ctx context.Context, e env) error {
 func runClaims(ctx context.Context, e env) error {
 	fs, tf := newKeyFlags("claims", e)
 	mine := fs.Bool("mine", false, "only claims owned by this token")
-	if err := fs.Parse(e.Args); err != nil {
+	if _, err := parse(e, fs, e.Args, false); err != nil {
 		return err
 	}
 	api, _, err := connect(ctx, e, fs, *tf)
@@ -610,6 +699,9 @@ func runClaims(ctx context.Context, e env) error {
 	var claims []pw.Claim
 	if resp.JSON200 != nil {
 		claims = *resp.JSON200
+	}
+	if e.jsonOut() {
+		return cli.ClaimsJSON(e.Stdout, claims)
 	}
 	cli.ClaimsTable(e.Stdout, claims, time.Now())
 	return nil
