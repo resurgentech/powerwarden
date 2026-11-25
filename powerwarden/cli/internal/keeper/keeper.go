@@ -10,7 +10,7 @@ import (
 	"time"
 
 	pw "github.com/resurgentech/powerwarden/powerwarden/api"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/client"
 )
 
 // defaultLease is used for cadence when the server's reply carries none.

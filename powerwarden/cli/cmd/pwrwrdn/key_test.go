@@ -13,8 +13,8 @@ import (
 
 	"github.com/resurgentech/keyclient/keyclienttest"
 	"github.com/resurgentech/keyclient/request"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/keyreq"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/pwfake"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/keyreq"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/pwfake"
 )
 
 // TestMain lets a test run this binary as a real second pwrwrdn process.
@@ -95,7 +95,7 @@ func (k *keyRig) noToken() {
 func (k *keyRig) assertNotice(line string) {
 	k.t.Helper()
 	if !strings.HasPrefix(line, approvePrefix+k.serviceHost()+" at "+k.p.URL()+"/requests?code=") ||
-		!strings.Contains(line, " and check that the code ") || !strings.Contains(line, " matches. Asked for: role agent, tool pwrwrdn/0.2.0. The request expires at ") {
+		!strings.Contains(line, " and check that the code ") || !strings.Contains(line, " matches. Asked for: role agent, tool pwrwrdn/0.3.0. The request expires at ") {
 		k.t.Fatalf("not the notice: %q", line)
 	}
 }
@@ -131,7 +131,7 @@ func TestT16_NoTerminalPending(t *testing.T) {
 				t.Fatalf("filed %d", n)
 			}
 			f := k.p.Filed()[0]
-			if f.Role != "agent" || f.Tool != "pwrwrdn/0.2.0" || !strings.HasPrefix(f.NameHint, "tester@") || strings.Contains(f.NameHint, ".") {
+			if f.Role != "agent" || f.Tool != "pwrwrdn/0.3.0" || !strings.HasPrefix(f.NameHint, "tester@") || strings.Contains(f.NameHint, ".") {
 				t.Fatalf("filing %+v", f)
 			}
 			if k.f.Count("GET", "/v1/hosts") != 0 {

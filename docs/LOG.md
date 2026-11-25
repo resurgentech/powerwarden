@@ -164,3 +164,17 @@ are appended, never edited in; a hook refuses rewrites.
 - README, `AGENTS.md`, `docs/DESIGN-powerwarden.md`, the module README and code comments updated; this log keeps
   its history. The module directory and path (`powerwarden/mcp`) are unchanged.
 - Commits: the commit on `main` that carries this entry.
+
+## 2026-11-24 — pwrwrdn: the module moves to `powerwarden/cli`, version 0.3.0
+
+- The module that holds the `pwrwrdn` CLI is now `powerwarden/cli`, path
+  `github.com/resurgentech/powerwarden/powerwarden/cli` (moved with `git mv`, history kept). The binary is still
+  `pwrwrdn`, built from `cmd/pwrwrdn`; no command, flag, output or exit code changes.
+- `client.Version` is `0.3.0`: removing `pwrwrdn mcp` was a breaking change. A key request's tool is now
+  `pwrwrdn/0.3.0`; the tests that pin it were changed first and failed before the bump.
+- Updated: every Go import, `go.mod`, `go.work` (`use`; the versioned `replace` lines are unchanged), `.orch.json`,
+  `.gitignore`, README (module table, build commands, a "Versions" note on the new tag prefix), `AGENTS.md`,
+  `docs/CLI.md`, `docs/DESIGN-powerwarden.md`. Earlier entries in this log keep the old path as written.
+- Tags: the old module's tags stay as they are. The first tag under the new path is `powerwarden/cli/v0.3.0`, made
+  when this is pushed.
+- Commits: the commit on `main` that carries this entry.

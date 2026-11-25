@@ -30,7 +30,7 @@ Design: [`docs/DESIGN-powermaster.md`](docs/DESIGN-powermaster.md),
 | `powermaster/daemon` | `github.com/resurgentech/powerwarden/powermaster/daemon` | The powermaster service and its TUI ([README](powermaster/daemon/README.md)) |
 | `powerwarden/api` | `github.com/resurgentech/powerwarden/powerwarden/api` | Generated Go client and types (`package powerwardenapi`) |
 | `powerwarden/daemon` | `github.com/resurgentech/powerwarden/powerwarden/daemon` | The powerwarden service and web UI ([README](powerwarden/daemon/README.md)) |
-| `powerwarden/mcp` | `github.com/resurgentech/powerwarden/powerwarden/mcp` | The `pwrwrdn` CLI ([README](powerwarden/mcp/README.md)) |
+| `powerwarden/cli` | `github.com/resurgentech/powerwarden/powerwarden/cli` | The `pwrwrdn` CLI ([README](powerwarden/cli/README.md)) |
 | `docs/` | | Design docs, work log |
 | `go.work` | | Joins the five modules for in-repo work |
 
@@ -40,9 +40,9 @@ Needs Go 1.25 or newer and [`just`](https://github.com/casey/just). Each module 
 recipes from the module directory (or `just --justfile <dir>/justfile -d <dir> <recipe>` from the root).
 
 ```sh
-cd powermaster/daemon && just test && just vet     # likewise powerwarden/daemon, powerwarden/mcp
+cd powermaster/daemon && just test && just vet     # likewise powerwarden/daemon, powerwarden/cli
 cd powermaster/api && just test && just drift      # likewise powerwarden/api
-cd powerwarden/mcp && just install                 # pwrwrdn into $GOBIN
+cd powerwarden/cli && just install                 # pwrwrdn into $GOBIN
 ```
 
 `just generate` in an `api/` module regenerates the client from its spec; `just drift` fails when the committed
@@ -67,7 +67,8 @@ How to configure and run each service: the package READMEs and the design docs.
 ## Development notes
 
 - **Versions.** Each module is versioned on its own with a directory-prefixed tag, e.g. `powerwarden/api/v0.1.0`.
-  Stay on v0.x.
+  Stay on v0.x. The `pwrwrdn` CLI is the module `powerwarden/cli`, tagged `powerwarden/cli/vX.Y.Z` from v0.3.0;
+  its tags before v0.3.0 carry the directory name it had then.
 - **Intra-repo requires and `go.work`.** The daemons and `pwrwrdn` `require` the `api` modules at a tag
   (`v0.1.0`), so `go install <module>@<tag>` and builds with `GOWORK=off` resolve real versions. Go reads the
   `go.mod` of the required version even inside a workspace, so `go.work` also carries one *versioned* `replace` per

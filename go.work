@@ -5,7 +5,7 @@ use (
 	./powermaster/daemon
 	./powerwarden/api
 	./powerwarden/daemon
-	./powerwarden/mcp
+	./powerwarden/cli
 )
 
 // Intra-repo requires name a tag. These versioned replaces point each required

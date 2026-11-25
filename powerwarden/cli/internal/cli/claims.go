@@ -7,8 +7,8 @@ import (
 	"time"
 
 	pw "github.com/resurgentech/powerwarden/powerwarden/api"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/keeper"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/client"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/keeper"
 )
 
 // WaitSeconds is the length of one blocking read.

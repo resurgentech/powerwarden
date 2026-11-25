@@ -5,7 +5,7 @@ IPMI, PDUs, ping and SSH checks) and **powerwarden** (decides when hosts should 
 claims), plus `pwrwrdn`, the CLI for powerwarden's claim API.
 
 - `powermaster/api`, `powerwarden/api`: generated Go clients for `specs/openapi/*.yml` (spec-first).
-- `powermaster/daemon`, `powerwarden/daemon`: the services; `powerwarden/mcp`: `pwrwrdn`.
+- `powermaster/daemon`, `powerwarden/daemon`: the services; `powerwarden/cli`: `pwrwrdn`.
 - `specs/openapi/`: the API contracts. `docs/`: design docs and the work log.
 - Tooling: plain `just` per package (`just test`, `just vet`, `just drift`, `just image`); a committed `go.work`
   joins the five modules. See `README.md`.

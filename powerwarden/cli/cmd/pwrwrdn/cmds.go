@@ -17,10 +17,10 @@ import (
 
 	"github.com/resurgentech/keyclient/request"
 	pw "github.com/resurgentech/powerwarden/powerwarden/api"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/cli"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/keeper"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/keyreq"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/cli"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/client"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/keeper"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/keyreq"
 )
 
 // claimPrefix is the id prefix of every claim the CLI makes.

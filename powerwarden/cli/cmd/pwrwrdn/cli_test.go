@@ -14,7 +14,7 @@ import (
 	"time"
 
 	pw "github.com/resurgentech/powerwarden/powerwarden/api"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/pwfake"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/pwfake"
 )
 
 type syncBuf struct {

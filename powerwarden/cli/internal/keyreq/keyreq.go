@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/resurgentech/keyclient/request"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/client"
 )
 
 const (

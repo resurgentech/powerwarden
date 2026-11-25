@@ -20,8 +20,8 @@ import (
 	"syscall"
 
 	"github.com/resurgentech/keyclient/request"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/cli"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/cli"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/client"
 )
 
 // env is everything a subcommand needs from the process, injectable in tests.

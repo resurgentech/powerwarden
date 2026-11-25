@@ -59,7 +59,7 @@ A tool restates this section verbatim in its own `docs/CLI.md`.
 
 ## pwrwrdn
 
-The conformance test is `powerwarden/mcp/cmd/pwrwrdn/tree_test.go`. It walks the command table in `main.go`.
+The conformance test is `powerwarden/cli/cmd/pwrwrdn/tree_test.go`. It walks the command table in `main.go`.
 
 ### Commands
 

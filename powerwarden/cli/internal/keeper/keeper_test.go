@@ -9,9 +9,9 @@ import (
 	"time"
 
 	pw "github.com/resurgentech/powerwarden/powerwarden/api"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/keeper"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/pwfake"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/client"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/keeper"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/pwfake"
 )
 
 func setup(t *testing.T) (*pwfake.Fake, *keeper.Keeper, *keeper.FakeClock) {

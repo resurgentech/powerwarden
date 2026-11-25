@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | Implemented |
-| Code | `powerwarden/daemon` (daemon, web UI), `powerwarden/api` (generated client), `powerwarden/mcp` (the `pwrwrdn` CLI) |
+| Code | `powerwarden/daemon` (daemon, web UI), `powerwarden/api` (generated client), `powerwarden/cli` (the `pwrwrdn` CLI) |
 | Spec | `specs/openapi/powerwarden.yml` (OpenAPI 3.0.3) |
 | Related | [`DESIGN-powermaster.md`](DESIGN-powermaster.md) (power control) |
 
@@ -24,7 +24,7 @@ state, and serves a web UI for operators.
 
 The demand and liveness publisher is a job scheduler. The reference publisher is hourchd, which knows which jobs are
 ready and which workers are connected; workers talk only to the scheduler and never to powerwarden. Agents use the
-claim API through `pwrwrdn` (`powerwarden/mcp`).
+claim API through `pwrwrdn` (`powerwarden/cli`).
 
 ## Goals and non-goals
 
@@ -698,7 +698,7 @@ token's role is never `none`.
 
 ### pwrwrdn: key request on first use
 
-`pwrwrdn` (`powerwarden/mcp`) asks for its key on first use with keyclient's `request.Ensure`. The contract and the
+`pwrwrdn` (`powerwarden/cli`) asks for its key on first use with keyclient's `request.Ensure`. The contract and the
 state machines are keyclient's `docs/CONTRACT.md` and `docs/STATES.md`; this section records only what is specific
 to `pwrwrdn`. The code is in `internal/keyreq`.
 

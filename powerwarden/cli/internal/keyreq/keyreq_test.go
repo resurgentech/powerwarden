@@ -15,13 +15,13 @@ import (
 	"time"
 
 	"github.com/resurgentech/keyclient/request"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/client"
 )
 
 func testNotice() request.Notice {
 	return request.Notice{
 		Service: "powerwarden.example.com", ApproveURL: "https://keys.example.com/requests?code=ABCD-EFGH",
-		UserCode: "ABCD-EFGH", Role: "agent", Tool: "pwrwrdn/0.2.0",
+		UserCode: "ABCD-EFGH", Role: "agent", Tool: "pwrwrdn/0.3.0",
 		ExpiresAt: time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
 	}
 }
@@ -68,7 +68,7 @@ func TestSR9StringsPinned(t *testing.T) {
 }
 
 func TestConstantsPinned(t *testing.T) {
-	if DefaultRole != "agent" || ExitTempFail != 75 || client.EnvKeyRequestURL != "POWERWARDEN_KEY_REQUEST_URL" || client.Version != "0.2.0" {
+	if DefaultRole != "agent" || ExitTempFail != 75 || client.EnvKeyRequestURL != "POWERWARDEN_KEY_REQUEST_URL" || client.Version != "0.3.0" {
 		t.Fatal("constants drifted")
 	}
 }
@@ -77,7 +77,7 @@ func TestOptionsMapping(t *testing.T) {
 	o := Options(Params{ServiceURL: "https://powerwarden.example.com", Override: "https://keys.example.com/r", TokenPath: "/t/token",
 		Role: "", NameHint: "u@box", Wait: true})
 	if o.ServiceURL != "https://powerwarden.example.com" || o.Override != "https://keys.example.com/r" || o.TokenPath != "/t/token" ||
-		o.Role != "agent" || o.NameHint != "u@box" || o.Tool != "pwrwrdn/0.2.0" || o.Host != "" || o.AllowInsecureHTTP || !o.Wait || o.Notify != nil {
+		o.Role != "agent" || o.NameHint != "u@box" || o.Tool != "pwrwrdn/0.3.0" || o.Host != "" || o.AllowInsecureHTTP || !o.Wait || o.Notify != nil {
 		t.Fatalf("%+v", o)
 	}
 	if o := Options(Params{Role: "ops"}); o.Role != "ops" {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/client"
 )
 
 func write(t *testing.T, mode os.FileMode, content string) string {

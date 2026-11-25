@@ -1,4 +1,4 @@
-module github.com/resurgentech/powerwarden/powerwarden/mcp
+module github.com/resurgentech/powerwarden/powerwarden/cli
 
 go 1.25.0
 

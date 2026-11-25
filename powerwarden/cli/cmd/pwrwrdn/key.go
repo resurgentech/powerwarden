@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/resurgentech/keyclient/request"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/cli"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/client"
-	"github.com/resurgentech/powerwarden/powerwarden/mcp/internal/keyreq"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/cli"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/client"
+	"github.com/resurgentech/powerwarden/powerwarden/cli/internal/keyreq"
 )
 
 // newKeyFlags is newFlags plus the flags of a command that may ask for a key.

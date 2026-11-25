@@ -23,7 +23,7 @@ import (
 
 // Version is pwrwrdn's version; as pwrwrdn/<Version> it is the Tool of a key
 // request.
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 const (
 	EnvURL           = "POWERWARDEN_URL"

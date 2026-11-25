@@ -1,4 +1,4 @@
 {
   "project": "powerwarden",
-  "gate": "set -e; for m in powermaster/api powermaster/daemon powerwarden/api powerwarden/daemon powerwarden/mcp; do just --justfile $m/justfile -d $m test; done; for m in powermaster/daemon powerwarden/daemon powerwarden/mcp; do just --justfile $m/justfile -d $m vet; done; for m in powermaster/api powerwarden/api; do just --justfile $m/justfile -d $m drift; done"
+  "gate": "set -e; for m in powermaster/api powermaster/daemon powerwarden/api powerwarden/daemon powerwarden/cli; do just --justfile $m/justfile -d $m test; done; for m in powermaster/daemon powerwarden/daemon powerwarden/cli; do just --justfile $m/justfile -d $m vet; done; for m in powermaster/api powerwarden/api; do just --justfile $m/justfile -d $m drift; done"
 }

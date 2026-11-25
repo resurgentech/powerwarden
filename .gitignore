@@ -13,4 +13,4 @@ images.env
 # Built binaries
 /powermaster/daemon/cmd/powermaster/powermaster
 /powerwarden/daemon/cmd/powerwarden/powerwarden
-/powerwarden/mcp/cmd/pwrwrdn/pwrwrdn
+/powerwarden/cli/cmd/pwrwrdn/pwrwrdn
